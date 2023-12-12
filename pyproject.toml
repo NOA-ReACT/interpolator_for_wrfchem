@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "interpolator-for-wrfchem"
+version = "0.1.0"
+description = "Interpolates global chemistry fields for use with WRF-CHEM"
+authors = ["Thanasis Georgiou <ageorgiou@noa.gr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^1.26.2"
+netcdf4 = "^1.6.5"
+scipy = "^1.11.4"
+tomli = "^2.0.1"
+xarray = "^2023.12.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,17 @@
+[meta]
+name = "CAMS EAC4 to GOCART dust scheme"
+version = 1
+
+[aliases_source]
+CAMSD1 = "aermr04"
+CAMSD2 = "aermr05"
+CAMSD3 = "aermr06"
+
+[aliases_target]
+
+[species_map]
+DUST1 = { CAMSD1 = 0.963777, CAMSD2 = 1.0, CAMSD3 = 0.016303 }
+DUST2 = { CAMSD3 = 0.190836 }
+DUST3 = { CAMSD3 = 0.29703 }
+DUST4 = { CAMSD3 = 0.353956 }
+DUST5 = { CAMSD3 = 0.106119 }
