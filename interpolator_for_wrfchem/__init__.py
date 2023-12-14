@@ -63,7 +63,10 @@ def main():
         # Interpolate vertical levels
         for (x, y), _ in np.ndenumerate(wrf_xlong):
             cams_interp[var][:, x, y] = interpolate.interp1d(
-                cams_pres, v[:, x, y], kind="linear", bounds_error=False
+                cams_pres,
+                v[:, x, y],
+                kind="linear",
+                fill_value="extrapolate",
             )(wrf_pres[:, x, y])
 
     # Compute mappings

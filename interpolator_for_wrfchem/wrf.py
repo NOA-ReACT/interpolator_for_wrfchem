@@ -4,6 +4,18 @@ import netCDF4 as nc
 
 
 class WRF:
+    wrfinput_path: Path
+    wrfbdy_path: Path
+    wrfinput: nc.Dataset
+    wrfbdy: nc.Dataset
+
+    wrfinput_time: dt.datetime
+    wrfbdy_time: list[dt.datetime]
+
+    size_south_north: int
+    size_west_east: int
+    size_bottom_top: int
+
     def __init__(self, wrfinput_path: Path, wrfbdy_path: Path) -> None:
         self.wrfinput_path = wrfinput_path
         self.wrfbdy_path = wrfbdy_path
@@ -18,6 +30,7 @@ class WRF:
 
         self.size_south_north = self.wrfinput.dimensions["south_north"].size
         self.size_west_east = self.wrfinput.dimensions["west_east"].size
+        self.size_bottom_top = self.wrfinput.dimensions["bottom_top"].size
 
     def get_wrfinput_time(self) -> dt.datetime:
         """Read the time of the wrfinput file"""

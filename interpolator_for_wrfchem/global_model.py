@@ -69,18 +69,27 @@ class CAMS_EAC4:
             ti = cftime.date2index(t, ds["time"], calendar=ds["time"].calendar)
 
             latitude = ds["latitude"][:]
-            sort = np.argsort(latitude)
-            latitude = latitude[sort]
+            latitude_sort = np.argsort(latitude)
+            latitude = latitude[latitude_sort]
 
             longitude = ds["longitude"][:]
+            longitude = ((longitude - 180) % 360) - 180
+            longitude_sort = np.argsort(longitude)
+            longitude = longitude[longitude_sort]
 
             out = np.empty((len(ds.dimensions["level"]), *tx.shape))
 
+            arr = var[ti, ...]
+            arr = arr[:, latitude_sort, :]
+            arr = arr[:, :, longitude_sort]
+
             for l in range(len(ds.dimensions["level"])):
                 interp = interpolate.RectBivariateSpline(
-                    latitude, longitude, var[ti, l, sort, :]
+                    latitude,
+                    longitude,
+                    arr[l],
                 )
-                out[l, :, :] = interp(tx, ty, grid=False)
+                out[l, :, :] = interp(ty, tx, grid=False)  # Watch order of tx, ty!
 
         return out
 
