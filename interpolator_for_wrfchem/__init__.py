@@ -1,16 +1,17 @@
 import argparse
+import shutil
 from collections import namedtuple
 from pathlib import Path
-import shutil
 
+import netCDF4 as nc
 import numpy as np
+from rich.progress import track
+from scipy import interpolate
 
 from interpolator_for_wrfchem.global_model import CAMS_EAC4
+from interpolator_for_wrfchem.met_em import MetEm
 from interpolator_for_wrfchem.species_map import SpeciesMap
 from interpolator_for_wrfchem.wrf import WRF
-from rich.progress import track
-
-from scipy import interpolate
 
 
 def main():
@@ -39,6 +40,11 @@ def main():
 
     cams = CAMS_EAC4(Path(args.input_files))
     print(cams)
+
+    # Open diagnostic file if requested
+    diag_nc = None
+    if args.diagnostics:
+        diag_nc = nc.Dataset("diag.nc", "w")
 
     # Interpolate initial conditions
     if wrf.wrfinput_time not in cams.times:
@@ -69,6 +75,18 @@ def main():
                 fill_value="extrapolate",
             )(wrf_pres[:, x, y])
 
+    if diag_nc is not None:
+        # Write interpolated fields to diagnostic file
+        diag_nc.createDimension("south_north", wrf.size_south_north)
+        diag_nc.createDimension("west_east", wrf.size_west_east)
+        diag_nc.createDimension("bottom_top", wrf.size_bottom_top)
+
+        for name, arr in cams_interp.items():
+            diag_nc.createVariable(
+                name, "f4", ("bottom_top", "south_north", "west_east")
+            )
+            diag_nc.variables[name][:, :, :] = arr
+
     # Compute mappings
     wrf_vars = {}
     for species in track(mapping.map.keys(), description="Mapping..."):
@@ -91,32 +109,36 @@ def main():
     # Compute boundary
 
     wrf.close()
+    if diag_nc is not None:
+        diag_nc.close()
 
 
 def cmd_args():
     argparser = argparse.ArgumentParser(
         description="Interpolate WRF-Chem output to a regular grid"
     )
-    argparser.add_argument("input_files", help="Global model fields to interpolate")
-    argparser.add_argument("wrfinput", help="WRF input file to update")
-    argparser.add_argument("wrfbdy", help="WRF boundary file to update")
-    argparser.add_argument("mapping", help="Mapping file to use")
+    argparser.add_argument(
+        "input_files", type=Path, help="Global model fields to interpolate"
+    )
+    argparser.add_argument("wrfinput", type=Path, help="WRF input file to update")
+    argparser.add_argument("wrfbdy", type=Path, help="WRF boundary file to update")
+    argparser.add_argument("mapping", type=Path, help="Mapping file to use")
     argparser.add_argument(
         "--copy-icbc",
         "-c",
         action="store_true",
-        help="Do not modify wrfinput/wrfbdy, instead copy them to wrfinput_orig/wrfbdy_orig",
+        help="Do not modify wrfinput/wrfbdy, instead copy them to wrfinput.orig/wrfbdy.orig",
     )
-    args = argparser.parse_args()
+    argparser.add_argument(
+        "--diagnostics",
+        "-d",
+        action="store_true",
+        help="Write out diagnostic file for debugging. It will be written to the current directory with the name `diag.nc`.",
+    )
+    args = vars(argparser.parse_args())
 
     args_type = namedtuple(
         "Args",
-        ["input_files", "wrfinput", "wrfbdy", "mapping", "copy_icbc"],
+        args.keys(),
     )
-    return args_type(
-        input_files=Path(args.input_files),
-        wrfinput=Path(args.wrfinput),
-        wrfbdy=Path(args.wrfbdy),
-        mapping=Path(args.mapping),
-        copy_icbc=args.copy_icbc,
-    )
+    return args_type(**args)
