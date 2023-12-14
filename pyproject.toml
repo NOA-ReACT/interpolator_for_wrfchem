@@ -5,6 +5,9 @@ description = "Interpolates global chemistry fields for use with WRF-CHEM"
 authors = ["Thanasis Georgiou <ageorgiou@noa.gr>"]
 readme = "README.md"
 
+[tool.poetry.scripts]
+interpolator-for-wrfchem = "interpolator_for_wrfchem:main"
+
 [tool.poetry.dependencies]
 python = "^3.12"
 numpy = "^1.26.2"
@@ -12,6 +15,8 @@ netcdf4 = "^1.6.5"
 scipy = "^1.11.4"
 tomli = "^2.0.1"
 xarray = "^2023.12.0"
+cftime = "^1.6.3"
+rich = "^13.7.0"
 
 
 [build-system]
