@@ -100,9 +100,10 @@ def main():
     for name, arr in track(wrf_vars.items(), description="Writing..."):
         alias = mapping.aliases_target.get(name, name)
 
-        wrf.wrfinput.createVariable(
-            alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
-        )
+        if alias not in wrf.wrfinput.variables:
+            wrf.wrfinput.createVariable(
+                alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
+            )
         wrf.wrfinput.variables[name][0, :, :, :] = arr
         # TODO Units?
 
