@@ -3,12 +3,11 @@ import shutil
 from collections import namedtuple
 from pathlib import Path
 
-import netCDF4 as nc
 import numpy as np
 from rich.progress import track
-from scipy import interpolate
 
-from interpolator_for_wrfchem.global_model import CAMS_EAC4
+from interpolator_for_wrfchem.global_model_2 import CAMS_EAC4_ML
+from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
 from interpolator_for_wrfchem.met_em import MetEm
 from interpolator_for_wrfchem.species_map import SpeciesMap
 from interpolator_for_wrfchem.wrf import WRF
@@ -38,13 +37,11 @@ def main():
     wrf = WRF(Path(args.wrfinput), Path(args.wrfbdy))
     print(wrf)
 
-    cams = CAMS_EAC4(Path(args.input_files))
-    print(cams)
+    met_em = MetEm(Path(args.met_em), wrf.wrfinput)
+    print(met_em)
 
-    # Open diagnostic file if requested
-    diag_nc = None
-    if args.diagnostics:
-        diag_nc = nc.Dataset("diag.nc", "w")
+    cams = CAMS_EAC4_ML(Path(args.input_files), mapping.required_source_species)
+    print(cams)
 
     # Interpolate initial conditions
     if wrf.wrfinput_time not in cams.times:
@@ -52,49 +49,23 @@ def main():
             f"Could not find global model file for wrfinput time {wrf.wrfinput_time}"
         )
 
-    wrf_xlong = wrf.wrfinput.variables["XLONG"][0, :, :]
-    wrf_xlat = wrf.wrfinput.variables["XLAT"][0, :, :]
-    wrf_pres = (
-        wrf.wrfinput.variables["P"][0, :, :, :]
-        + wrf.wrfinput.variables["PB"][0, :, :, :]
-    ) * 0.01
-    cams_pres = cams.get_var(wrf.wrfinput_time, "level")
+    wrf_ds = wrf.get_dataset()
+    cams_ds = cams.get_dataset(
+        wrf.wrfinput_time,
+    )
+    cams_interp_ds = interpolate_to_wrf(wrf_ds, cams_ds)
 
-    cams_interp = {}
-    for var in track(mapping.required_source_species, description="Interpolating..."):
-        cams_interp[var] = np.empty(wrf_pres.shape)
-
-        v = cams.interpolate_hoz(wrf.wrfinput_time, var, wrf_xlong, wrf_xlat)
-
-        # Interpolate vertical levels
-        for (x, y), _ in np.ndenumerate(wrf_xlong):
-            cams_interp[var][:, x, y] = interpolate.interp1d(
-                cams_pres[x, y, :],
-                v[:, x, y],
-                kind="linear",
-                fill_value="extrapolate",
-            )(wrf_pres[:, x, y])
-
-    if diag_nc is not None:
-        # Write interpolated fields to diagnostic file
-        diag_nc.createDimension("south_north", wrf.size_south_north)
-        diag_nc.createDimension("west_east", wrf.size_west_east)
-        diag_nc.createDimension("bottom_top", wrf.size_bottom_top)
-
-        for name, arr in cams_interp.items():
-            diag_nc.createVariable(
-                name, "f4", ("bottom_top", "south_north", "west_east")
-            )
-            diag_nc.variables[name][:, :, :] = arr
+    if args.diagnostics:
+        cams_interp_ds.to_netcdf("diag.nc", "w")
 
     # Compute mappings
     wrf_vars = {}
     for species in track(mapping.map.keys(), description="Mapping..."):
-        wrf_vars[species] = np.zeros(wrf_pres.shape)
+        wrf_vars[species] = np.zeros(wrf_ds.pres.shape)
 
         for component, coefficient in mapping.map[species].items():
             alias = mapping.aliases_source.get(component, component)
-            wrf_vars[species] += cams_interp[alias] * coefficient
+            wrf_vars[species] += cams_interp_ds[alias] * coefficient
 
     # Write to WRF
     for name, arr in track(wrf_vars.items(), description="Writing..."):
@@ -110,8 +81,6 @@ def main():
     # Compute boundary
 
     wrf.close()
-    if diag_nc is not None:
-        diag_nc.close()
 
 
 def cmd_args():

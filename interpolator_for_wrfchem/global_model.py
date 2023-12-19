@@ -5,8 +5,7 @@ import cftime
 import numpy as np
 from scipy import interpolate
 import pandas as pd
-from importlib import resources as impresources
-
+import importlib.resources
 import interpolator_for_wrfchem.res as res
 
 
@@ -196,7 +195,9 @@ class CAMS_EAC4_ML:
         psfc = self.get_var(t, "sp")
         psfc = psfc.reshape(*psfc.shape, 1)
 
-        levels = pd.read_csv(impresources.files(res) / "cams_eac4_model_levels.csv")
+        levels = pd.read_csv(
+            importlib.resources.files(res) / "cams_eac4_model_levels.csv"
+        )
         a = levels["a [Pa]"].values.reshape(1, 1, 61)
         b = levels["b"].values.reshape(1, 1, 61)
 
