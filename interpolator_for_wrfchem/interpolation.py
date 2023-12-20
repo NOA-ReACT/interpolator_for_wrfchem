@@ -29,6 +29,9 @@ def interpolate_to_wrf(wrf: xr.Dataset, gm: xr.Dataset):
         if var not in wrf.variables:
             raise RuntimeError(f"Variable {var} not found in WRF dataset")
 
+    # Horizontally interpolate pressure
+    gm_pres = _interpolate_hoz(wrf, gm, "pres")
+
     # Interpolate each variable
     out = {}
     for var in gm.variables:
@@ -36,7 +39,8 @@ def interpolate_to_wrf(wrf: xr.Dataset, gm: xr.Dataset):
             continue
 
         hoz_var = _interpolate_hoz(wrf, gm, var)
-        out[var] = _interpolate_ver(wrf, gm, hoz_var)
+        out[f"{var}_hoz"] = hoz_var
+        out[var] = _interpolate_ver(wrf.pres, gm_pres, hoz_var)
 
     return xr.Dataset(out)
 
@@ -58,19 +62,26 @@ def _interpolate_hoz(wrf: xr.Dataset, gm: xr.Dataset, var: str) -> xr.Dataset:
     return xr.DataArray(out, dims=("level", "south_north", "west_east"))
 
 
-def _interpolate_ver(wrf: xr.Dataset, gm: xr.Dataset, var: np.array) -> xr.Dataset:
+def _interpolate_ver(
+    wrf_pres: xr.DataArray, gm_pres: xr.DataArray, var: xr.DataArray
+) -> xr.Dataset:
     """
     Vertically interpolate variable `var` from global model `gm` to WRF `wrf`
+
+    Args:
+        wrf_pres: WRF pressure field
+        gm_pres: Global model pressure field, interpolated to WRF coordinates. Must have dimensions (level, south_north, west_east)
+        var: Variable to interpolate, must have dimensions (level, south_north, west_east)
     """
 
-    out = xr.zeros_like(wrf["pres"])
-    for x in range(wrf.sizes["west_east"]):
-        for y in range(wrf.sizes["south_north"]):
+    out = xr.zeros_like(wrf_pres)
+    for x in range(wrf_pres.sizes["west_east"]):
+        for y in range(wrf_pres.sizes["south_north"]):
             out[dict(west_east=x, south_north=y)] = interpolate.interp1d(
-                gm.pres.isel(longitude=x, latitude=y),
+                gm_pres.isel(west_east=x, south_north=y),
                 var.isel(west_east=x, south_north=y),
                 kind="linear",
                 fill_value="extrapolate",
-            )(wrf.pres.isel(west_east=x, south_north=y))
-
+                copy=False,
+            )(wrf_pres.isel(west_east=x, south_north=y))
     return out
