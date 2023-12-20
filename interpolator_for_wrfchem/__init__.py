@@ -56,7 +56,9 @@ def main():
     cams_interp_ds = interpolate_to_wrf(wrf_ds, cams_ds)
 
     if args.diagnostics:
-        cams_interp_ds.to_netcdf("diag.nc", "w")
+        cams_diag_ds = cams_interp_ds.copy()
+        cams_diag_ds["pres"] = wrf_ds["pres"]
+        cams_interp_ds.to_netcdf("diag_cams_interp.nc", "w")
 
     # Compute mappings
     wrf_vars = {}
