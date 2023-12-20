@@ -1,6 +1,9 @@
 import datetime as dt
 from pathlib import Path
+
 import netCDF4 as nc
+import numpy as np
+import xarray as xr
 
 
 class WRF:
@@ -46,6 +49,28 @@ class WRF:
             for t in times
         ]
         return times
+
+    def get_dataset(self):
+        """Return a xarray.Dataset containing the basic coordinates and the pressure field."""
+
+        xlong = self.wrfinput.variables["XLONG"][0, :, :]
+        xlat = self.wrfinput.variables["XLAT"][0, :, :]
+        pres = (
+            self.wrfinput.variables["P"][0, :, :, :]
+            + self.wrfinput.variables["PB"][0, :, :, :]
+        ) * 0.01
+        level = np.arange(1, self.size_bottom_top + 1)
+
+        return xr.Dataset(
+            {
+                "pres": (("bottom_top", "south_north", "west_east"), pres),
+            },
+            coords={
+                "XLONG": (("south_north", "west_east"), xlong),
+                "XLAT": (("south_north", "west_east"), xlat),
+                "level": (("bottom_top"), level),
+            },
+        )
 
     def close(self) -> None:
         """Close the netCDF files"""
