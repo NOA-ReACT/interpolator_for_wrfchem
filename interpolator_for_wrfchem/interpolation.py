@@ -77,11 +77,12 @@ def _interpolate_ver(
     out = xr.zeros_like(wrf_pres)
     for x in range(wrf_pres.sizes["west_east"]):
         for y in range(wrf_pres.sizes["south_north"]):
-            out[dict(west_east=x, south_north=y)] = interpolate.interp1d(
+            arr = interpolate.interp1d(
                 gm_pres.isel(west_east=x, south_north=y),
                 var.isel(west_east=x, south_north=y),
                 kind="linear",
                 fill_value="extrapolate",
                 copy=False,
             )(wrf_pres.isel(west_east=x, south_north=y))
+            out[dict(west_east=x, south_north=y)] = np.clip(arr, a_min=0, a_max=None)
     return out

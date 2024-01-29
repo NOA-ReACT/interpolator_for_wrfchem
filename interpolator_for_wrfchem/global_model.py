@@ -92,7 +92,9 @@ class CAMS_EAC4_PL:
                     longitude,
                     arr[l],
                 )
-                out[l, :, :] = interp(ty, tx, grid=False)  # Watch order of tx, ty!
+                out[l, :, :] = np.clip(
+                    interp(ty, tx, grid=False), a_min=0, a_max=None
+                )  # Watch order of tx, ty!
 
         return out
 
