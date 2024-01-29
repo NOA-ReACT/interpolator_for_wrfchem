@@ -68,7 +68,11 @@ class WRF:
             coords={
                 "XLONG": (("south_north", "west_east"), xlong),
                 "XLAT": (("south_north", "west_east"), xlat),
-                "level": (("bottom_top"), level),
+                "ZNU": (("bottom_top",), self.wrfinput.variables["ZNU"][0, :]),
+                "level": (("bottom_top",), level),
+            },
+            attrs={
+                "P_TOP": self.wrfinput.variables["P_TOP"][0],
             },
         )
 

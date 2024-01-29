@@ -57,7 +57,7 @@ def _interpolate_hoz(wrf: xr.Dataset, gm: xr.Dataset, var: str) -> xr.Dataset:
             gm.longitude,
             gm[var].isel(level=l),
         )
-        out[l, :, :] = interp(wrf.XLAT, wrf.XLONG, grid=False)
+        out[l, ...] = interp(wrf.XLAT, wrf.XLONG, grid=False)
 
     return xr.DataArray(out, dims=("level", "south_north", "west_east"))
 
