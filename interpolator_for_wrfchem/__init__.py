@@ -71,7 +71,9 @@ def main():
 
             for component, coefficient in mapping.map[species].items():
                 alias = mapping.aliases_source.get(component, component)
-                wrf_vars[species] += cams_interp_ds[alias] * coefficient
+                wrf_vars[species] += (
+                    cams_interp_ds[alias] * mapping.units.source * coefficient
+                ) / mapping.units.target
 
         # Write to WRF
         for name, arr in track(wrf_vars.items(), description="Writing..."):
@@ -82,7 +84,6 @@ def main():
                     alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
                 )
             wrf.wrfinput.variables[alias][0, :, :, :] = arr
-            # TODO Units?
 
     # Compute boundary
     if not args.no_bc:
@@ -108,18 +109,19 @@ def main():
 
                     for component, coefficient in mapping.map[species].items():
                         alias = mapping.aliases_source.get(component, component)
-                        wrf_vars[species] += cams_bdy[alias].squeeze() * coefficient
+                        wrf_vars[species] += (
+                            cams_bdy[alias].squeeze()
+                            * mapping.units.source
+                            * coefficient
+                        ) / mapping.units.target
 
                 # Write to wrfbdy
                 for name, arr in wrf_vars.items():
                     alias = mapping.aliases_target.get(name, name) + f"_{bdy}"
 
                     if alias not in wrf.wrfbdy.variables:
-                        wrf.wrfbdy.createVariable(
-                            alias, "f4", ("Time", *arr.dims)
-                        )
+                        wrf.wrfbdy.createVariable(alias, "f4", ("Time", *arr.dims))
                     wrf.wrfbdy.variables[alias][t_idx, ...] = arr
-                    # TODO Units? FieldType=104?
 
         # Compute tendencies
         # For each boundary, store the difference between the current and previous value
@@ -140,10 +142,9 @@ def main():
                         )
 
                     wrf.wrfbdy.variables[bdy_t_var][t_idx, ...] = (
-                            wrf.wrfbdy.variables[bdy_var][t_idx, ...]
-                            - wrf.wrfbdy.variables[bdy_var][t_idx - 1, ...]
-                        ) / dt
-
+                        wrf.wrfbdy.variables[bdy_var][t_idx, ...]
+                        - wrf.wrfbdy.variables[bdy_var][t_idx - 1, ...]
+                    ) / dt
 
     wrf.close()
 

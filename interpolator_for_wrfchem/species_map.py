@@ -1,11 +1,26 @@
 """Handles reading of species maps from toml files"""
 
+from dataclasses import dataclass
 from pathlib import Path
 import tomli
+
+UNITS = {
+    "kg": 1,
+    "g": 1e-3,
+    "mg": 1e-6,
+    "ug": 1e-9,
+}
+
+
+@dataclass
+class Units:
+    source: str
+    target: str
 
 
 class SpeciesMap:
     name: str
+    units: Units
     aliases_source: dict[str, str]
     aliases_target: dict[str, str]
     map: dict[str, dict[str, float]]
@@ -28,6 +43,19 @@ class SpeciesMap:
         if data["meta"]["version"] != 1:
             raise ValueError(f"Only version 1 species files are supported")
         self.name = data["meta"]["name"]
+
+        # Check units
+        if "units" not in data:
+            raise ValueError(f"Missing 'units' section in {path}")
+        source_unit_name = data["units"]["source"]
+        target_unit_name = data["units"]["target"]
+
+        if source_unit_name not in UNITS:
+            raise ValueError(f"Unknown source unit {source_unit_name}")
+        if target_unit_name not in UNITS:
+            raise ValueError(f"Unknown target unit {target_unit_name}")
+
+        self.units = Units(UNITS[source_unit_name], UNITS[target_unit_name])
 
         # Store alias maps
         self.aliases_source = data.get("aliases_source", {})
