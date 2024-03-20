@@ -5,12 +5,12 @@ from pathlib import Path
 
 import numpy as np
 
-from interpolator_for_wrfchem.global_model_2 import CAMS_EAC4_ML
+from interpolator_for_wrfchem import utils
+from interpolator_for_wrfchem.global_model import CAMS_EAC4_ML
 from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
 from interpolator_for_wrfchem.met_em import MetEm
 from interpolator_for_wrfchem.species_map import SpeciesMap, convert_si
 from interpolator_for_wrfchem.wrf import WRF
-from interpolator_for_wrfchem import utils
 
 
 def main():

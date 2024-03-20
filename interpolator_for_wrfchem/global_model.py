@@ -1,105 +1,13 @@
 import datetime as dt
-from pathlib import Path
-import netCDF4 as nc
-import cftime
-import numpy as np
-from scipy import interpolate
-import pandas as pd
 import importlib.resources
+from pathlib import Path
+
+import cftime
+import netCDF4 as nc
+import pandas as pd
+import xarray as xr
+
 import interpolator_for_wrfchem.res as res
-
-
-class CAMS_EAC4_PL:
-    """
-    Handles interactions with a directory of EAC4 files, named `cams_YYYY-MM-DD.nc`, each
-    file containing one or more time steps. This class handles pressure level data.
-    """
-
-    def __init__(self, dir: Path):
-        self.dir = dir
-        self.times = {}
-
-        self.read_time_info()
-
-    def read_time_info(self):
-        """
-        Read the time information from the files in the directory, fills the self.times
-        dictionary
-        """
-
-        self.times = {}
-        for filepath in self.dir.glob("cams_*.nc"):
-            for date in self.get_dates_from_file(filepath):
-                self.times[date] = filepath
-
-        # Sort dictionary by key
-        self.times = dict(sorted(self.times.items()))
-
-    def get_dates_from_file(self, filepath: Path):
-        """Yields the dates from a single file, as datetime objects"""
-
-        with nc.Dataset(filepath, "r") as ds:
-            time_var = ds.variables["time"][:]
-            units = ds.variables["time"].units
-            calendar = ds.variables["time"].calendar
-        return cftime.num2pydate(time_var, units, calendar)
-
-    def get_var(self, t: dt.datetime, name: str):
-        """Returns the variable `name` at time `t`"""
-
-        with nc.Dataset(self.times[t], "r") as ds:
-            ds.set_auto_mask(False)
-
-            var = ds.variables[name]
-            if var.ndim == 4:
-                times = ds.variables["time"][:]
-                time_index = cftime.date2index(t, times, calendar=var.calendar)
-                return var[time_index, :, :, :]
-            else:
-                return var[:]
-
-    def interpolate_hoz(
-        self, t: dt.datetime, name: str, tx: np.ndarray, ty: np.ndarray
-    ):
-        """Returns the variable `name` at time `t`, horizontally interpolated at points (tx, ty)"""
-
-        assert tx.shape == ty.shape
-
-        with nc.Dataset(self.times[t], "r") as ds:
-            ds.set_auto_mask(False)
-
-            var = ds[name]
-            ti = cftime.date2index(t, ds["time"], calendar=ds["time"].calendar)
-
-            latitude = ds["latitude"][:]
-            latitude_sort = np.argsort(latitude)
-            latitude = latitude[latitude_sort]
-
-            longitude = ds["longitude"][:]
-            longitude = ((longitude - 180) % 360) - 180
-            longitude_sort = np.argsort(longitude)
-            longitude = longitude[longitude_sort]
-
-            out = np.empty((len(ds.dimensions["level"]), *tx.shape))
-
-            arr = var[ti, ...]
-            arr = arr[:, latitude_sort, :]
-            arr = arr[:, :, longitude_sort]
-
-            for l in range(len(ds.dimensions["level"])):
-                interp = interpolate.RectBivariateSpline(
-                    latitude,
-                    longitude,
-                    arr[l],
-                )
-                out[l, :, :] = np.clip(
-                    interp(ty, tx, grid=False), a_min=0, a_max=None
-                )  # Watch order of tx, ty!
-
-        return out
-
-    def __str__(self) -> str:
-        return f"CAMS_EAC4({self.dir}), first date: {min(self.times)}, last date: {max(self.times)}"
 
 
 class CAMS_EAC4_ML:
@@ -107,23 +15,50 @@ class CAMS_EAC4_ML:
     Handles interactions with a directory of EAC4-model level files. The given directory
     should contains a set of directories named `YYYY-MM-DD`, each containing a pair of
     `levtype_ml.nc` and `levtype_sfc.nc` files. This class handles model level data.
+
+    The 3D pressure field is created using the surface pressure and the model definitions
+    from [1], while the methodology is described in [2].
+
+    [1] https://confluence.ecmwf.int/display/UDOC/L60+model+level+definitions
+    [2] https://confluence.ecmwf.int/display/CKB/ERA5%3A+compute+pressure+and+geopotential+on+model+levels%2C+geopotential+height+and+geometric+height
     """
 
-    ml_vars = list[str]
-    sfc_vars = list[str]
+    dir: Path
+    """Where the files are located"""
 
-    def __init__(self, dir: Path):
+    times: dict[dt.datetime, dict[str, Path]]
+    """Dictionary of times and file paths"""
+
+    required_vars: list[str]
+    """The list of variables to be read from the files"""
+
+    level_def: pd.DataFrame
+    """L60 model level definitions"""
+
+    def __init__(self, dir: Path | str, required_vars: list[str] = []):
+        """
+        Prepare a CAMS EAC4 reanalysis product, in model levels
+
+        Args:
+            dir: The directory containing the files
+            required_vars: A list of variables that are used and will be present in the
+                           returned datasets
+        """
+        if isinstance(dir, str):
+            dir = Path(dir)
         self.dir = dir
-        self.times = {}
+        self.required_vars = required_vars
 
-        self.read_time_info()
-        self.read_var_names()
+        # Read information about the vertical levels, required for creating the
+        # 3D pressure field
+        self.level_def = pd.read_csv(
+            importlib.resources.files(res) / "cams_eac4_model_levels.csv"
+        )
 
-    def read_time_info(self):
-        """
-        Read the time information from the files in the directory, fills the self.times
-        dictionary
-        """
+        self._explore_directory()
+
+    def _explore_directory(self):
+        """Traverses the directory to find CAMS files, reads time and variable info"""
 
         self.times = {}
         for filepath in self.dir.iterdir():
@@ -136,7 +71,7 @@ class CAMS_EAC4_ML:
             if not sfc_lv.exists() or not ml_lv.exists():
                 continue
 
-            for date in self.get_dates_from_file(ml_lv):
+            for date in self._get_dates_from_file(ml_lv):
                 self.times[date] = {"sfc": sfc_lv, "ml": ml_lv}
 
         # Sort dictionary by key
@@ -144,8 +79,8 @@ class CAMS_EAC4_ML:
         if len(self.times) == 0:
             raise RuntimeError(f"No files found in {self.dir}")
 
-    def get_dates_from_file(self, filepath: Path):
-        """Yields the dates from a single file, as datetime objects"""
+    def _get_dates_from_file(self, filepath: Path) -> list[dt.datetime]:
+        """Returns the date from a single file, as datetime object"""
 
         with nc.Dataset(filepath, "r") as ds:
             time_var = ds.variables["time"][:]
@@ -153,98 +88,62 @@ class CAMS_EAC4_ML:
             calendar = ds.variables["time"].calendar
         return cftime.num2pydate(time_var, units, calendar)
 
-    def read_var_names(self):
+    def get_dataset(self, t: dt.datetime) -> xr.Dataset:
         """
-        Reads the variable names from the first file in the directory, to know which
-        variables are in the model level files and which are in the surface level files.
+        Returns the CAMS EAC4 dataset at time `t`
+
+        Coordinates:
+            - Longitude
+            - Latitude,
+            - Level (pressure)
+
+        Vars:
+            - All variables in `required_vars`, passed when creating the object
         """
 
-        files = list(self.times.values())[0]
-        with nc.Dataset(files["sfc"], "r") as ds:
-            self.sfc_vars = list(ds.variables.keys())
-        with nc.Dataset(files["ml"], "r") as ds:
-            self.ml_vars = list(ds.variables.keys())
+        # Read surface pressure from sfc file
+        with nc.Dataset(self.times[t]["sfc"], "r") as ds:
+            ds.set_auto_mask(False)
+            time = ds.variables["time"]
+            time_idx = cftime.date2index(t, time, calendar=time.calendar)
+            sp = ds["sp"][time_idx, :, :]  # time, lat, lon
 
-    def get_filepath(self, t: dt.datetime, name: str):
-        """Returns the filepath that contains `name` for the given time `t`"""
-
-        if name in self.sfc_vars:
-            return self.times[t]["sfc"]
-        elif name in self.ml_vars:
-            return self.times[t]["ml"]
-        else:
-            raise RuntimeError(f"Variable {name} not found in CAMS_EAC4_ML")
-
-    def get_var(self, t: dt.datetime, name: str):
-        """Returns the variable `name` at time `t`"""
-
-        with nc.Dataset(self.get_filepath(t, name), "r") as ds:
+        with nc.Dataset(self.times[t]["ml"], "r") as ds:
             ds.set_auto_mask(False)
 
-            var = ds.variables[name]
-            if var.ndim > 2:
-                times = ds.variables["time"]
-                time_index = cftime.date2index(
-                    t, times, calendar=ds.variables["time"].calendar
-                )
-                return var[time_index, ...]
-            else:
-                return var[:]
+            # Read variables
+            data = {}
+            for var in self.required_vars:
+                data[var] = (("level", "latitude", "longitude"), ds[var][time_idx, ...])
 
-    def get_pressure(self, t: dt.datetime):
-        """Returns the pressure field at time `t`"""
+            # Read coordinates
+            data["longitude"] = ((ds["longitude"][:] - 180) % 360) - 180
+            data["latitude"] = ds["latitude"][:]
+            data["level"] = ds["level"][:]
 
-        psfc = self.get_var(t, "sp")
-        psfc = psfc.reshape(*psfc.shape, 1)
+        # Create the 3D pressure field
+        psfc = sp.reshape(1, *sp.shape)
+        a = self.level_def["a [Pa]"].values.reshape(61, 1, 1)
+        b = self.level_def["b"].values.reshape(61, 1, 1)
 
-        levels = pd.read_csv(
-            importlib.resources.files(res) / "cams_eac4_model_levels.csv"
-        )
-        a = levels["a [Pa]"].values.reshape(1, 1, 61)
-        b = levels["b"].values.reshape(1, 1, 61)
+        pres_hf = a + b * psfc  # Half-level pressure
+        pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
+        pres = pres / 100  # Convert to hPa
+        data["pres"] = (("level", "latitude", "longitude"), pres)
 
-        pres_hf = a + b * psfc
+        # Create dataset
+        ds = xr.Dataset(data)
+        ds = ds.set_coords(["longitude", "latitude", "level"])
 
-        # Full level pressure is the average of the adjacent half level pressures
-        return (pres_hf[:, :, :-1] + pres_hf[:, :, 1:]) / 2
+        # Sort latitude and longitude, surface should be the first level
+        ds = ds.sortby("latitude")
+        ds = ds.sortby("longitude")
+        ds = ds.sortby("level", ascending=False)
 
-    def interpolate_hoz(
-        self, t: dt.datetime, name: str, tx: np.ndarray, ty: np.ndarray
-    ):
-        """Returns the variable `name` at time `t`, horizontally interpolated at points (tx, ty)"""
+        return ds
 
-        assert tx.shape == ty.shape
+    @property
+    def available_times(self) -> list[dt.datetime]:
+        """Returns the list of available times"""
 
-        with nc.Dataset(self.get_filepath(t, name), "r") as ds:
-            ds.set_auto_mask(False)
-
-            var = ds[name]
-            ti = cftime.date2index(t, ds["time"], calendar=ds["time"].calendar)
-
-            latitude = ds["latitude"][:]
-            latitude_sort = np.argsort(latitude)
-            latitude = latitude[latitude_sort]
-
-            longitude = ds["longitude"][:]
-            longitude = ((longitude - 180) % 360) - 180
-            longitude_sort = np.argsort(longitude)
-            longitude = longitude[longitude_sort]
-
-            out = np.empty((len(ds.dimensions["level"]), *tx.shape))
-
-            arr = var[ti, ...]
-            arr = arr[:, latitude_sort, :]
-            arr = arr[:, :, longitude_sort]
-
-            for l in range(len(ds.dimensions["level"])):
-                interp = interpolate.RectBivariateSpline(
-                    latitude,
-                    longitude,
-                    arr[l],
-                )
-                out[l, :, :] = interp(ty, tx, grid=False)  # Watch order of tx, ty!
-
-        return out
-
-    def __str__(self) -> str:
-        return f"CAMS_EAC4_ML({self.dir}), first date: {min(self.times)}, last date: {max(self.times)}"
+        return list(self.times.keys())
