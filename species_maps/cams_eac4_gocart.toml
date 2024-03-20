@@ -1,10 +1,6 @@
 [meta]
 name = "CAMS EAC4 to GOCART dust scheme"
-version = 1
-
-[units]
-source = "kg"
-target = "ug"
+version = 2
 
 [aliases_source]
 CAMSD1 = "aermr04"
@@ -13,9 +9,22 @@ CAMSD3 = "aermr06"
 
 [aliases_target]
 
-[species_map]
-DUST_1 = { CAMSD1 = 0.963777, CAMSD2 = 1.0, CAMSD3 = 0.016303 }
-DUST_2 = { CAMSD3 = 0.190836 }
-DUST_3 = { CAMSD3 = 0.29703 }
-DUST_4 = { CAMSD3 = 0.353956 }
-DUST_5 = { CAMSD3 = 0.106119 }
+[species_map.DUST_1]
+coeffs = { CAMSD1 = 0.963777, CAMSD2 = 1.0, CAMSD3 = 0.016303 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_2]
+coeffs = { CAMSD3 = 0.190836 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_3]
+coeffs = { CAMSD3 = 0.29703 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_4]
+coeffs = { CAMSD3 = 0.353956 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_5]
+coeffs = { CAMSD3 = 0.106119 }
+units = { global = "k", regional = "u" }

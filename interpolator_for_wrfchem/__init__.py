@@ -9,7 +9,7 @@ from rich.progress import track
 from interpolator_for_wrfchem.global_model_2 import CAMS_EAC4_ML
 from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
 from interpolator_for_wrfchem.met_em import MetEm
-from interpolator_for_wrfchem.species_map import SpeciesMap
+from interpolator_for_wrfchem.species_map import SpeciesMap, convert_si
 from interpolator_for_wrfchem.wrf import WRF
 from interpolator_for_wrfchem import utils
 
@@ -66,14 +66,20 @@ def main():
 
         # Compute mappings
         wrf_vars = {}
-        for species in track(mapping.map.keys(), description="Mapping..."):
-            wrf_vars[species] = np.zeros(wrf_ds.pres.shape)
+        for name, spec in mapping.map.items():
+            wrf_vars[name] = np.zeros(wrf_ds.pres.shape)
 
-            for component, coefficient in mapping.map[species].items():
+            for component, coefficient in mapping.map[name].coeffs.items():
                 alias = mapping.aliases_source.get(component, component)
-                wrf_vars[species] += (
-                    cams_interp_ds[alias] * mapping.units.source * coefficient
-                ) / mapping.units.target
+                wrf_vars[name] += (
+                    convert_si(
+                        cams_interp_ds[alias],
+                        spec.units.global_model,
+                        spec.units.regional_model,
+                    )
+                    * coefficient
+                )
+            wrf_vars[name] = (wrf_vars[name] * spec.weight) + spec.offset
 
         # Write to WRF
         for name, arr in track(wrf_vars.items(), description="Writing..."):
@@ -104,16 +110,20 @@ def main():
                 # This helps share the interpolation code between the initial and
                 # boundary conditions, but now we don't need the extra dimension.
                 wrf_vars = {}
-                for species in mapping.map.keys():
-                    wrf_vars[species] = np.zeros(wrf_bdy.pres.squeeze().shape)
+                for name, spec in mapping.map.items():
+                    wrf_vars[name] = np.zeros(wrf_bdy.pres.squeeze().shape)
 
-                    for component, coefficient in mapping.map[species].items():
+                    for component, coefficient in mapping.map[name].coeffs.items():
                         alias = mapping.aliases_source.get(component, component)
-                        wrf_vars[species] += (
-                            cams_bdy[alias].squeeze()
-                            * mapping.units.source
+                        wrf_vars[name] += (
+                            convert_si(
+                                cams_bdy[alias].squeeze(),
+                                spec.units.global_model,
+                                spec.units.regional_model,
+                            )
                             * coefficient
-                        ) / mapping.units.target
+                        )
+                    wrf_vars[name] = (wrf_vars[name] * spec.weight) + spec.offset
 
                 # Write to wrfbdy
                 for name, arr in wrf_vars.items():
