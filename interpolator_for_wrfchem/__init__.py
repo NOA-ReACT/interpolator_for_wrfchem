@@ -4,7 +4,6 @@ from collections import namedtuple
 from pathlib import Path
 
 import numpy as np
-from rich.progress import track
 
 from interpolator_for_wrfchem.global_model_2 import CAMS_EAC4_ML
 from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
@@ -82,7 +81,7 @@ def main():
             wrf_vars[name] = (wrf_vars[name] * spec.weight) + spec.offset
 
         # Write to WRF
-        for name, arr in track(wrf_vars.items(), description="Writing..."):
+        for name, arr in wrf_vars.items():
             alias = mapping.aliases_target.get(name, name)
 
             if alias not in wrf.wrfinput.variables:
