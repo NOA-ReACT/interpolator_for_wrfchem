@@ -13,7 +13,6 @@ The application is written in Python and is meant to be used a command-line tool
 - The application currently assumes that fields are mixing ratios.
 - The global model fields should be on a regular lat-lon grid.
 - No nesting support
--
 
 ## Installation
 
@@ -53,6 +52,9 @@ There are some optional flags:
 - `--copy-icbc`: Make a backup of the `wrfinput` and `wrfbdy` files before updating them.
 - `--no-ic`: Do not update the `wrfinput`. You must nonetheless provide the path to the `wrfinput` file as it is required to read some information.
 - `--diagnostics`: Store some diagnostic information in the `diag_cams_interp.nc` file.
+
+When you use nested domains, you can run the application multiple times, each time pointing to a different `wrfinput` file. You can omit the `wrfbdy` file when running the application for the nested domains' `wrfinput` files.
+If you need to update `wrfbdy` files for the future without touching `wrfinput` (e.g. for a cycling run), point to a correct `wrfinput` file (correct means it's the same model grid and configuration) and use the `--no-ic` flag.
 
 ## Species mapping
 
