@@ -39,16 +39,17 @@ The interpolator will update `wrfinput` and `wrfbdy` files to include the chemis
 The interpolator is a command-line tool and can be run as follows:
 
 ```bash
-interpolator-for-wrfchem <global model data path> <met_em path> <wrfinput_d01 path> <wrfbdy_d01 path> <species map path> <output path>
+interpolator-for-wrfchem <global model data path> <met_em path> <wrfinput path> <species map path>
 ```
 
-The `wrfinput_d01` and `wrfbdy_d01` files **WILL BE MODIFIED**!
+The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**!
 
 There are some optional flags:
 
+- `--wrfbdy=`: Path to the `wrfbdy_d01` file, if not provided, the boundary is not updated.
 - `--copy-icbc`: Make a backup of the `wrfinput` and `wrfbdy` files before updating them.
-- `--no-ic` and `--no-bc`: Do not update the `wrfinput` and `wrfbdy` files, respectively.
-- `--diagnostics`: Store some diagnostic information in the `diag.nc` file.
+- `--no-ic`: Do not update the `wrfinput`. You must nonetheless provide the path to the `wrfinput` file as it is required to read some information.
+- `--diagnostics`: Store some diagnostic information in the `diag_cams_interp.nc` file.
 
 ## Species mapping
 

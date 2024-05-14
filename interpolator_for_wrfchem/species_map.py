@@ -21,7 +21,6 @@ def convert_si(value: Any, from_prefix: str, to_prefix: str):
         raise ValueError(f"Unknown SI prefix {from_prefix}")
     if to_prefix not in SI_PREFIX:
         raise ValueError(f"Unknown SI prefix {to_prefix}")
-    print(f"From: {from_prefix}, To: {to_prefix}")
     return value * 10 ** (SI_PREFIX[from_prefix] - SI_PREFIX[to_prefix])
 
 
