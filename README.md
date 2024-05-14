@@ -39,10 +39,13 @@ The interpolator will update `wrfinput` and `wrfbdy` files to include the chemis
 The interpolator is a command-line tool and can be run as follows:
 
 ```bash
-interpolator-for-wrfchem <global model data path> <met_em path> <wrfinput path> <species map path>
+interpolator-for-wrfchem <global model name> <global model data path> <met_em path> <wrfinput path> <species map path>
 ```
 
-The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**!
+The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**! The `global model name` can be one of the following:
+
+- `cams_eac4`: CAMS EAC4 data (w/ 60 vertical levels)
+- `cams_global_forecasts`: CAMS global forecasts (w/ 137 vertical levels)
 
 There are some optional flags:
 

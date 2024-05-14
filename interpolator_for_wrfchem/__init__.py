@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from interpolator_for_wrfchem import utils
-from interpolator_for_wrfchem.global_model import CAMS_EAC4_ML
+from interpolator_for_wrfchem.global_models import GLOBAL_MODELS
 from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
 from interpolator_for_wrfchem.met_em import MetEm
 from interpolator_for_wrfchem.species_map import SpeciesMap, convert_si
@@ -42,16 +42,18 @@ def main():
     met_em = MetEm(Path(args.met_em), wrf_ds)
     print(met_em)
 
-    cams = CAMS_EAC4_ML(Path(args.input_files), mapping.required_source_species)
-    print(cams)
+    global_model = GLOBAL_MODELS[args.global_model](
+        Path(args.input_files), mapping.required_source_species
+    )
+    print(global_model)
 
     # Interpolate initial conditions
-    if wrf.time not in cams.times:
+    if wrf.time not in global_model.times:
         raise RuntimeError(
             f"Could not find global model file for wrfinput time {wrf.nc_file_time}"
         )
 
-    cams_ds = cams.get_dataset(wrf.time)
+    cams_ds = global_model.get_dataset(wrf.time)
 
     # Initial conditions
     if not args.no_ic:
@@ -161,6 +163,12 @@ def main():
 def cmd_args():
     argparser = argparse.ArgumentParser(
         description="Interpolate WRF-Chem output to a regular grid"
+    )
+    argparser.add_argument(
+        "global_model",
+        type=str,
+        help="Global model to use",
+        choices=list(GLOBAL_MODELS.keys()),
     )
     argparser.add_argument(
         "input_files", type=Path, help="Global model fields to interpolate"

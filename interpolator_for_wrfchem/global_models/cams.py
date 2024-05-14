@@ -8,19 +8,22 @@ import pandas as pd
 import xarray as xr
 
 import interpolator_for_wrfchem.res as res
+from interpolator_for_wrfchem.global_models.prototype import GlobalModel
 
 
-class CAMS_EAC4_ML:
+class CAMS_Base(GlobalModel):
     """
-    Handles interactions with a directory of EAC4-model level files. The given directory
-    should contains a set of directories named `YYYY-MM-DD`, each containing a pair of
-    `levtype_ml.nc` and `levtype_sfc.nc` files. This class handles model level data.
+    Handles interactions w/ a directory of CAMS Global Atmospheric Composition forecasts.
+    The given directory should contain a set of directories named `YYYY-MM-DD`, each
+    containing a pair of `levtype_ml.nc` and `levtype_sfc.nc` files. This class handles
+    model level data.
 
-    The 3D pressure field is created using the surface pressure and the model definitions
-    from [1], while the methodology is described in [2].
+    The 3D pressure field is created using the surface pressure and the model definition [1],
+    which is different between the re-analysis (e.g., EAC4) and the operational forecasts.
+    Thus, we have two subclasses of this that are almost the same, but use different model
+    level definitions.
 
-    [1] https://confluence.ecmwf.int/display/UDOC/L60+model+level+definitions
-    [2] https://confluence.ecmwf.int/display/CKB/ERA5%3A+compute+pressure+and+geopotential+on+model+levels%2C+geopotential+height+and+geometric+height
+    [1] https://confluence.ecmwf.int/display/CKB/ERA5%3A+compute+pressure+and+geopotential+on+model+levels%2C+geopotential+height+and+geometric+height
     """
 
     dir: Path
@@ -33,7 +36,7 @@ class CAMS_EAC4_ML:
     """The list of variables to be read from the files"""
 
     level_def: pd.DataFrame
-    """L60 model level definitions"""
+    """Model level definitions (L60 or L137)"""
 
     def __init__(self, dir: Path | str, required_vars: list[str] = []):
         """
@@ -52,7 +55,8 @@ class CAMS_EAC4_ML:
         # Read information about the vertical levels, required for creating the
         # 3D pressure field
         self.level_def = pd.read_csv(
-            importlib.resources.files(res) / "cams_eac4_model_levels.csv"
+            importlib.resources.files(res)
+            / "cams_l60.csv"  # Change filename in subclass!
         )
 
         self._explore_directory()
@@ -123,8 +127,9 @@ class CAMS_EAC4_ML:
 
         # Create the 3D pressure field
         psfc = sp.reshape(1, *sp.shape)
-        a = self.level_def["a [Pa]"].values.reshape(61, 1, 1)
-        b = self.level_def["b"].values.reshape(61, 1, 1)
+        n_levels = len(self.level_def.index)
+        a = self.level_def["a [Pa]"].values.reshape(n_levels, 1, 1)
+        b = self.level_def["b"].values.reshape(n_levels, 1, 1)
 
         pres_hf = a + b * psfc  # Half-level pressure
         pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
@@ -147,3 +152,53 @@ class CAMS_EAC4_ML:
         """Returns the list of available times"""
 
         return list(self.times.keys())
+
+
+class CAMS_EAC4(CAMS_Base):
+    def __init__(self, dir: Path | str, required_vars: list[str] = []):
+        """
+        Prepare a CAMS EAC4 reanalysis product, in model levels
+
+        Args:
+            dir: The directory containing the files
+            required_vars: A list of variables that are used and will be present in the
+                            returned datasets
+        """
+        if isinstance(dir, str):
+            dir = Path(dir)
+        self.dir = dir
+        self.required_vars = required_vars
+
+        # Read information about the vertical levels, required for creating the
+        # 3D pressure field
+        self.level_def = pd.read_csv(importlib.resources.files(res) / "cams_l60.csv")
+
+        self._explore_directory()
+
+    def __str__(self) -> str:
+        return f"CAMS EAC4({self.dir})"
+
+
+class CAMS_Global_Forecasts(CAMS_Base):
+    def __init__(self, dir: Path | str, required_vars: list[str] = []):
+        """
+        Prepare a CAMS Global Atmospheric Forecast product, in model levels
+
+        Args:
+            dir: The directory containing the files
+            required_vars: A list of variables that are used and will be present in the
+                            returned datasets
+        """
+        if isinstance(dir, str):
+            dir = Path(dir)
+        self.dir = dir
+        self.required_vars = required_vars
+
+        # Read information about the vertical levels, required for creating the
+        # 3D pressure field
+        self.level_def = pd.read_csv(importlib.resources.files(res) / "cams_l137.csv")
+
+        self._explore_directory()
+
+    def __str__(self) -> str:
+        return f"CAMS Global Forecasts({self.dir})"
