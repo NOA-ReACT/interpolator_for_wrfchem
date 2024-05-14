@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "interpolator-for-wrfchem"
-version = "1.1.0"
+version = "1.2.0"
 description = "Interpolates global chemistry fields for use with WRF-CHEM"
 authors = ["Thanasis Georgiou <ageorgiou@noa.gr>"]
 readme = "README.md"
