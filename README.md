@@ -12,7 +12,6 @@ The application is written in Python and is meant to be used a command-line tool
 
 - The application currently assumes that fields are mixing ratios.
 - The global model fields should be on a regular lat-lon grid.
-- No nesting support
 
 ## Installation
 
