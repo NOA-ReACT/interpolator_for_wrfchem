@@ -9,7 +9,7 @@ readme = "README.md"
 interpolator-for-wrfchem = "interpolator_for_wrfchem:main"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 numpy = "^1.26.2"
 netcdf4 = "^1.6.5"
 scipy = "^1.11.4"
