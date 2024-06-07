@@ -90,3 +90,6 @@ class WRFBoundary:
 
     def close(self) -> None:
         self.nc_file.close()
+
+    def __str__(self) -> str:
+        return f"WRFBoundary(wrfbdy={self.path})"
