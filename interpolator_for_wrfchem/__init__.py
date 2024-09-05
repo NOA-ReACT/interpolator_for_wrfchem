@@ -4,6 +4,7 @@ from typing import Optional
 
 import click
 import numpy as np
+import xarray as xr
 
 from interpolator_for_wrfchem import utils
 from interpolator_for_wrfchem.global_models import GLOBAL_MODELS
@@ -31,6 +32,55 @@ def backup_files(wrfinput: Path, wrfbdy: Optional[Path]):
             print("Backup file already exists, will not overwrite")
         else:
             shutil.copy(wrfbdy, wrfbdy.with_suffix(".orig"))
+
+
+def do_mappings(
+    mapping: SpeciesMap, variables: xr.Dataset, shape: tuple[int, ...], squeeze=False
+):
+    """
+    Returns a dictionary of name -> DataArray pairs with the mapped arrays.
+    For each variable in the mapping, the function will:
+    - Convert the source variable to the target variable's units
+    - Apply the coefficients
+    - Apply the weight and offset
+
+    Args:
+        - mapping: SpeciesMap object
+        - vars: xarray.Dataset with the source variables
+        - shape: Shape of the output arrays
+        - squeeze: Whether to squeeze the input arrays before applying the mapping. Use when doing the boundary.
+    """
+
+    if squeeze:
+        # Remove any 1-sized dimensions from the shape
+        shape = tuple(s for s in shape if s != 1)
+
+    out = {}
+    for name, spec in mapping.map.items():
+        out[name] = np.zeros(shape)
+
+        for component, coefficient in mapping.map[name].coeffs.items():
+            alias = mapping.aliases_source.get(component, component)
+            arr = variables[alias]
+
+            if squeeze:
+                arr = arr.squeeze()
+
+            assert (
+                arr.shape == shape
+            ), f"Shape mismatch for {alias}: {arr.shape} != {shape}"
+
+            out[name] += (
+                convert_si(
+                    arr,
+                    spec.units.global_model,
+                    spec.units.regional_model,
+                )
+                * coefficient
+            )
+        out[name] = (out[name] * spec.weight) + spec.offset
+
+    return out
 
 
 @click.command(name="interpolator-for-wrf")
@@ -127,21 +177,7 @@ def main(
             cams_interp_ds.to_netcdf("diag_cams_interp.nc", "w")
 
         # Compute mappings
-        wrf_vars = {}
-        for name, spec in mapping.map.items():
-            wrf_vars[name] = np.zeros(wrf_ds.pres.shape)
-
-            for component, coefficient in mapping.map[name].coeffs.items():
-                alias = mapping.aliases_source.get(component, component)
-                wrf_vars[name] += (
-                    convert_si(
-                        cams_interp_ds[alias],
-                        spec.units.global_model,
-                        spec.units.regional_model,
-                    )
-                    * coefficient
-                )
-            wrf_vars[name] = (wrf_vars[name] * spec.weight) + spec.offset
+        wrf_vars = do_mappings(mapping, cams_interp_ds, wrf_ds.pres.shape)
 
         # Write to WRF
         for name, arr in wrf_vars.items():
@@ -170,25 +206,13 @@ def main(
                 cams_bdy = interpolate_to_wrf(wrf_bdy, cams_ds)
 
                 # Do mappings
-                # We use squeeze() at various points here because up until this point,
-                # all arrays keep their original dimensions, even if they are of size 1.
+                # We use squeeze here because up until this point, all arrays keep their
+                # original dimensions, even if they are of size 1.
                 # This helps share the interpolation code between the initial and
                 # boundary conditions, but now we don't need the extra dimension.
-                wrf_vars = {}
-                for name, spec in mapping.map.items():
-                    wrf_vars[name] = np.zeros(wrf_bdy.pres.squeeze().shape)
-
-                    for component, coefficient in mapping.map[name].coeffs.items():
-                        alias = mapping.aliases_source.get(component, component)
-                        wrf_vars[name] += (
-                            convert_si(
-                                cams_bdy[alias].squeeze(),
-                                spec.units.global_model,
-                                spec.units.regional_model,
-                            )
-                            * coefficient
-                        )
-                    wrf_vars[name] = (wrf_vars[name] * spec.weight) + spec.offset
+                wrf_vars = do_mappings(
+                    mapping, cams_bdy, wrf_bdy.pres.shape, squeeze=True
+                )
 
                 # Write to wrfbdy
                 for name, arr in wrf_vars.items():
