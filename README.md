@@ -43,6 +43,7 @@ interpolator-for-wrfchem <global model name> <global model data path> <met_em pa
 The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**! The `global model name` can be one of the following:
 
 - `cams_eac4`: CAMS EAC4 data (w/ 60 vertical levels)
+- `cams_eac4_adsbeta``: CAMS EAC4 data from the [ADS-Beta](https://ads-beta.atmosphere.copernicus.eu/)
 - `cams_global_forecasts`: CAMS global forecasts (w/ 137 vertical levels)
 
 There are some optional flags:
