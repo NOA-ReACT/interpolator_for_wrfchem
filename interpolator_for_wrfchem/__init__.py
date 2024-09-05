@@ -83,6 +83,114 @@ def do_mappings(
     return out
 
 
+def do_initial_conditions(
+    wrf: WRFInput,
+    wrf_ds: xr.Dataset,
+    global_model_ds: xr.Dataset,
+    mappings: SpeciesMap,
+    write_diagnostics=False,
+):
+    """Interpolate global model fields to WRF-Chem domain for initial conditions.
+
+    Args:
+        wrf: WRFInput object, used to write the interpolated fields to the `wrfinput` file
+        wrf_ds: xarray.Dataset containing the WRF-Chem domain's basic coordinates and pressure field
+        global_model_ds: xarray.Dataset containing the global model fields
+        mappings: SpeciesMap object to map from global to WRF-CHEM species
+        write_diagnostics: Whether to write out a diagnostic file for debugging purposes.
+    """
+
+    interp_ds = interpolate_to_wrf(wrf_ds, global_model_ds)
+
+    # Write interpolated source field to diagnostic file, if enabled.
+    if write_diagnostics:
+        interp_diag_ds = interp_ds.copy()
+        interp_diag_ds["pres"] = wrf_ds["pres"]
+        interp_diag_ds.to_netcdf("diag_interp.nc", "w")
+
+    # Compute mappings
+    wrf_vars = do_mappings(mappings, interp_ds, wrf_ds.pres.shape)
+
+    # Write to WRF
+    for name, arr in wrf_vars.items():
+        alias = mappings.aliases_target.get(name, name)
+
+        if alias not in wrf.nc_file.variables:
+            wrf.nc_file.createVariable(
+                alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
+            )
+        wrf.nc_file.variables[alias][0, :, :, :] = arr
+
+
+def do_boundary_conditions(
+    wrfbdy_path: Path,
+    met_em: MetEm,
+    wrf_ds: xr.Dataset,
+    global_model_ds: xr.Dataset,
+    mapping: SpeciesMap,
+):
+    """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
+
+    Args:
+        wrfbdy_path: Path to the WRF boundary file (wrfbdy_d01)
+        met_em: MetEm object representing the met_em files
+        wrf_ds: Dataset containing the WRF-CHEM domain's basic coordinates and pressure field
+        global_model: Dataset containing the global model fields
+        mapping: SpeciesMap object to map from global to WRF-CHEM species
+    """
+
+    wrfbdy = WRFBoundary(wrfbdy_path)
+
+    for t_idx, t in enumerate(wrfbdy.times):
+        wrf_pres = met_em.get_pres(t)
+
+        for bdy in ["BXS", "BXE", "BYS", "BYE"]:
+            # Get WRF profile and replace pressure from met_em
+            wrf_bdy = utils.get_boundary_profile(wrf_ds, bdy)
+            wrf_bdy["pres"] = utils.get_boundary_profile(wrf_pres, bdy)
+
+            # Interpolate to CAMS
+            cams_bdy = interpolate_to_wrf(wrf_bdy, global_model_ds)
+
+            # Do mappings
+            # We use squeeze here because up until this point, all arrays keep their
+            # original dimensions, even if they are of size 1.
+            # This helps share the interpolation code between the initial and
+            # boundary conditions, but now we don't need the extra dimension.
+            wrf_vars = do_mappings(mapping, cams_bdy, wrf_bdy.pres.shape, squeeze=True)
+
+            # Write to wrfbdy
+            for name, arr in wrf_vars.items():
+                alias = mapping.aliases_target.get(name, name) + f"_{bdy}"
+
+                if alias not in wrfbdy.nc_file.variables:
+                    wrfbdy.nc_file.createVariable(alias, "f4", ("Time", *arr.dims))
+                wrfbdy.nc_file.variables[alias][t_idx, ...] = arr
+
+        # Compute tendencies
+        # For each boundary, store the difference between the current and previous value
+        # inside the {var}_BT{bdy} variable, where {bdy} is one of XS, XE, YS, YE.
+        for t_idx, t in enumerate(wrfbdy.times):
+            if t_idx == 0:
+                continue
+            dt = (t - wrfbdy.times[t_idx - 1]).total_seconds()
+
+            for name in wrf_vars.keys():
+                for bdy in ["XS", "XE", "YS", "YE"]:
+                    bdy_var = f"{name}_B{bdy}"
+                    bdy_t_var = f"{name}_BT{bdy}"
+
+                    if bdy_t_var not in wrfbdy.nc_file.variables:
+                        wrfbdy.nc_file.createVariable(
+                            bdy_t_var, "f4", wrfbdy.nc_file[bdy_var].dimensions
+                        )
+
+                    wrfbdy.nc_file.variables[bdy_t_var][t_idx, ...] = (
+                        wrfbdy.nc_file.variables[bdy_var][t_idx, ...]
+                        - wrfbdy.nc_file.variables[bdy_var][t_idx - 1, ...]
+                    ) / dt
+
+
 @click.command(name="interpolator-for-wrf")
 @click.argument("global_model", type=click.Choice(list(GLOBAL_MODELS.keys())))
 @click.argument(
@@ -164,85 +272,15 @@ def main(
             f"Could not find global model file for wrfinput time {wrf.nc_file_time}"
         )
 
-    cams_ds = global_model.get_dataset(wrf.time)
+    global_model_ds = global_model.get_dataset(wrf.time)
 
     # Initial conditions
     if not no_ic:
-        cams_interp_ds = interpolate_to_wrf(wrf_ds, cams_ds)
-
-        # Write interpolated source field to diagnostic file, if enabled.
-        if diagnostics:
-            cams_diag_ds = cams_interp_ds.copy()
-            cams_diag_ds["pres"] = wrf_ds["pres"]
-            cams_interp_ds.to_netcdf("diag_cams_interp.nc", "w")
-
-        # Compute mappings
-        wrf_vars = do_mappings(mapping, cams_interp_ds, wrf_ds.pres.shape)
-
-        # Write to WRF
-        for name, arr in wrf_vars.items():
-            alias = mapping.aliases_target.get(name, name)
-
-            if alias not in wrf.nc_file.variables:
-                wrf.nc_file.createVariable(
-                    alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
-                )
-            wrf.nc_file.variables[alias][0, :, :, :] = arr
+        do_initial_conditions(wrf, wrf_ds, global_model_ds, mapping, diagnostics)
 
     # Compute boundary
     if wrfbdy:
-        wrfbdy = WRFBoundary(wrfbdy)
-        print(wrfbdy)
-
-        for t_idx, t in enumerate(wrfbdy.times):
-            wrf_pres = met_em.get_pres(t)
-
-            for bdy in ["BXS", "BXE", "BYS", "BYE"]:
-                # Get WRF profile and replace pressure from met_em
-                wrf_bdy = utils.get_boundary_profile(wrf_ds, bdy)
-                wrf_bdy["pres"] = utils.get_boundary_profile(wrf_pres, bdy)
-
-                # Interpolate to CAMS
-                cams_bdy = interpolate_to_wrf(wrf_bdy, cams_ds)
-
-                # Do mappings
-                # We use squeeze here because up until this point, all arrays keep their
-                # original dimensions, even if they are of size 1.
-                # This helps share the interpolation code between the initial and
-                # boundary conditions, but now we don't need the extra dimension.
-                wrf_vars = do_mappings(
-                    mapping, cams_bdy, wrf_bdy.pres.shape, squeeze=True
-                )
-
-                # Write to wrfbdy
-                for name, arr in wrf_vars.items():
-                    alias = mapping.aliases_target.get(name, name) + f"_{bdy}"
-
-                    if alias not in wrfbdy.nc_file.variables:
-                        wrfbdy.nc_file.createVariable(alias, "f4", ("Time", *arr.dims))
-                    wrfbdy.nc_file.variables[alias][t_idx, ...] = arr
-
-        # Compute tendencies
-        # For each boundary, store the difference between the current and previous value
-        # inside the {var}_BT{bdy} variable, where {bdy} is one of XS, XE, YS, YE.
-        for t_idx, t in enumerate(wrfbdy.times):
-            if t_idx == 0:
-                continue
-            dt = (t - wrfbdy.times[t_idx - 1]).total_seconds()
-
-            for name in wrf_vars.keys():
-                for bdy in ["XS", "XE", "YS", "YE"]:
-                    bdy_var = f"{name}_B{bdy}"
-                    bdy_t_var = f"{name}_BT{bdy}"
-
-                    if bdy_t_var not in wrfbdy.nc_file.variables:
-                        wrfbdy.nc_file.createVariable(
-                            bdy_t_var, "f4", wrfbdy.nc_file[bdy_var].dimensions
-                        )
-
-                    wrfbdy.nc_file.variables[bdy_t_var][t_idx, ...] = (
-                        wrfbdy.nc_file.variables[bdy_var][t_idx, ...]
-                        - wrfbdy.nc_file.variables[bdy_var][t_idx - 1, ...]
-                    ) / dt
+        print(f"Doing boundary conditions ({wrfbdy})")
+        do_boundary_conditions(wrfbdy, met_em, wrf_ds, global_model_ds, mapping)
 
     wrf.close()
