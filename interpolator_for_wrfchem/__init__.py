@@ -254,7 +254,7 @@ def main(
     mapping = SpeciesMap(Path(mapping))
     print(mapping)
 
-    wrf = WRFInput(wrfinput)
+    wrf = WRFInput(wrfinput, read_only=no_ic)
     wrf_ds = wrf.get_dataset()
     print(wrf)
 

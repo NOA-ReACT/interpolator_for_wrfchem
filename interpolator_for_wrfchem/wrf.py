@@ -15,10 +15,10 @@ class WRFInput:
     size_west_east: int
     size_bottom_top: int
 
-    def __init__(self, wrfinput_path: Path) -> None:
+    def __init__(self, wrfinput_path: Path, read_only=False) -> None:
         self.path = wrfinput_path
 
-        self.nc_file = nc.Dataset(str(self.path), "r+")
+        self.nc_file = nc.Dataset(str(self.path), "r+" if not read_only else "r")
         self.nc_file.set_auto_mask(False)
         self.time = self._get_time()
 
