@@ -6,6 +6,7 @@ import cftime
 import netCDF4 as nc
 import pandas as pd
 import xarray as xr
+import numpy as np
 
 import interpolator_for_wrfchem.res as res
 from interpolator_for_wrfchem.global_models.prototype import GlobalModel
@@ -89,10 +90,18 @@ class CAMS_ADSBeta_Base(GlobalModel):
         """Returns the date from a single file, as datetime object"""
 
         with nc.Dataset(filepath, "r") as ds:
+
             time_var = ds.variables["valid_time"][:]
+            dates = time_var.flatten().tolist()
             units = ds.variables["valid_time"].units
             calendar = ds.variables["valid_time"].calendar
-        return cftime.num2pydate(time_var, units, calendar)
+
+            # time_var = ds.variables["valid_time"][:]
+            # units = ds.variables["valid_time"].units
+            # calendar = ds.variables["valid_time"].calendar
+
+        return cftime.num2pydate(dates, units, calendar)
+        # return cftime.num2pydate(time_var, units, calendar)
 
     def get_dataset(self, t: dt.datetime) -> xr.Dataset:
         """
@@ -109,10 +118,14 @@ class CAMS_ADSBeta_Base(GlobalModel):
 
         # Read surface pressure from sfc file
         with nc.Dataset(self.times[t]["sfc"], "r") as ds:
+
             ds.set_auto_mask(False)
             time = ds.variables["valid_time"]
-            time_idx = cftime.date2index(t, time, calendar=time.calendar)
-            sp = ds["sp"][time_idx, :, :]  # time, lat, lon
+            cftime_seconds = cftime.date2num(
+                t, units=time.units, calendar=time.calendar
+            )
+            time_idx = np.where(time[0, :] == cftime_seconds)
+            sp = ds["sp"][time_idx[0][0], :, :]  # time, lat, lon
 
         with nc.Dataset(self.times[t]["ml"], "r") as ds:
             ds.set_auto_mask(False)
@@ -120,7 +133,11 @@ class CAMS_ADSBeta_Base(GlobalModel):
             # Read variables
             data = {}
             for var in self.required_vars:
-                data[var] = (("level", "latitude", "longitude"), ds[var][time_idx, ...])
+                # data[var] = (("level", "latitude", "longitude"), ds[var][time_idx[0][0], ...])
+                data[var] = (
+                    ("level", "latitude", "longitude"),
+                    ds[var][time_idx[0][0], ...][0, :, :, :],
+                )
 
             # Read coordinates
             data["longitude"] = ((ds["longitude"][:] - 180) % 360) - 180
@@ -134,12 +151,16 @@ class CAMS_ADSBeta_Base(GlobalModel):
         b = self.level_def["b"].values.reshape(n_levels, 1, 1)
 
         pres_hf = a + b * psfc  # Half-level pressure
-        pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
+        pres_hf_0 = pres_hf[0, :, :, :]
+        pres = (pres_hf_0[1:, :, :] + pres_hf_0[:-1, :, :]) / 2  # Full-level pressure
         pres = pres / 100  # Convert to hPa
         data["pres"] = (("level", "latitude", "longitude"), pres)
 
-        # Create dataset
+        # Create the xarray Dataset
         ds = xr.Dataset(data)
+
+        # Create dataset
+        # ds = xr.Dataset(data) #SFALMA EDO
         ds = ds.set_coords(["longitude", "latitude", "level"])
 
         # Sort latitude and longitude, surface should be the first level
@@ -179,3 +200,28 @@ class CAMS_ADSBeta_EAC4(CAMS_ADSBeta_Base):
 
     def __str__(self) -> str:
         return f"CAMS EAC4({self.dir})"
+
+
+class CAMS_ADSBeta_Global_Forecasts(CAMS_ADSBeta_Base):
+    def __init__(self, dir: Path | str, required_vars: list[str] = []):
+        """
+        Prepare a CAMS EAC4 reanalysis product, in model levels
+
+        Args:
+            dir: The directory containing the files
+            required_vars: A list of variables that are used and will be present in the
+                            returned datasets
+        """
+        if isinstance(dir, str):
+            dir = Path(dir)
+        self.dir = dir
+        self.required_vars = required_vars
+
+        # Read information about the vertical levels, required for creating the
+        # 3D pressure field
+        self.level_def = pd.read_csv(importlib.resources.files(res) / "cams_l137.csv")
+
+        self._explore_directory()
+
+    def __str__(self) -> str:
+        return f"CAMS Global Forecasts({self.dir})"

@@ -201,4 +201,5 @@ class CAMS_Global_Forecasts(CAMS_Base):
         self._explore_directory()
 
     def __str__(self) -> str:
+
         return f"CAMS Global Forecasts({self.dir})"
