@@ -96,12 +96,7 @@ class CAMS_ADSBeta_Base(GlobalModel):
             units = ds.variables["valid_time"].units
             calendar = ds.variables["valid_time"].calendar
 
-            # time_var = ds.variables["valid_time"][:]
-            # units = ds.variables["valid_time"].units
-            # calendar = ds.variables["valid_time"].calendar
-
         return cftime.num2pydate(dates, units, calendar)
-        # return cftime.num2pydate(time_var, units, calendar)
 
     def get_dataset(self, t: dt.datetime) -> xr.Dataset:
         """
@@ -133,7 +128,7 @@ class CAMS_ADSBeta_Base(GlobalModel):
             # Read variables
             data = {}
             for var in self.required_vars:
-                # data[var] = (("level", "latitude", "longitude"), ds[var][time_idx[0][0], ...])
+
                 data[var] = (
                     ("level", "latitude", "longitude"),
                     ds[var][time_idx[0][0], ...][0, :, :, :],
@@ -160,7 +155,6 @@ class CAMS_ADSBeta_Base(GlobalModel):
         ds = xr.Dataset(data)
 
         # Create dataset
-        # ds = xr.Dataset(data) #SFALMA EDO
         ds = ds.set_coords(["longitude", "latitude", "level"])
 
         # Sort latitude and longitude, surface should be the first level
