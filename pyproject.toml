@@ -10,13 +10,13 @@ interpolator-for-wrfchem = "interpolator_for_wrfchem:main"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-numpy = "^1.26.2"
-netcdf4 = "^1.6.5"
-scipy = "^1.11.4"
+numpy = "^2.2.5"
+netcdf4 = "^1.7.2"
+scipy = "^1.15.3"
 tomli = "^2.0.1"
-xarray = "^2023.12.0"
+xarray = "^2025.4.0"
 cftime = "^1.6.3"
-pandas = "^2.1.4"
+pandas = "^2.2.3"
 click = "^8.1.7"
 
 
