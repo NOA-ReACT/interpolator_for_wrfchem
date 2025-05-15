@@ -113,14 +113,19 @@ class CAMS_ADSBeta_Base(GlobalModel):
 
         # Read surface pressure from sfc file
         with nc.Dataset(self.times[t]["sfc"], "r") as ds:
-
             ds.set_auto_mask(False)
             time = ds.variables["valid_time"]
             cftime_seconds = cftime.date2num(
                 t, units=time.units, calendar=time.calendar
             )
-            time_idx = np.where(time[0, :] == cftime_seconds)
-            sp = ds["sp"][time_idx[0][0], :, :]  # time, lat, lon
+            time_idx = np.where(
+                time == cftime_seconds
+            )  # Should contain 2 values, one for period and one for reference_time
+            sp = ds["sp"][*time_idx, :, :]  # period, reference_time, lat, lon
+
+        # Drop one of the two redundant time dimensions, so now we are working on (level, lat, lon)
+        # We pretty much name one of the time dimensions as "level"
+        sp = np.squeeze(sp, axis=0)
 
         with nc.Dataset(self.times[t]["ml"], "r") as ds:
             ds.set_auto_mask(False)
@@ -129,9 +134,10 @@ class CAMS_ADSBeta_Base(GlobalModel):
             data = {}
             for var in self.required_vars:
 
+                # Drop time dimensions w/ squeeze
                 data[var] = (
                     ("level", "latitude", "longitude"),
-                    ds[var][time_idx[0][0], ...][0, :, :, :],
+                    np.squeeze(ds[var][*time_idx, ...][:]),
                 )
 
             # Read coordinates
@@ -140,14 +146,12 @@ class CAMS_ADSBeta_Base(GlobalModel):
             data["level"] = ds["model_level"][:]
 
         # Create the 3D pressure field
-        psfc = sp.reshape(1, *sp.shape)
         n_levels = len(self.level_def.index)
         a = self.level_def["a [Pa]"].values.reshape(n_levels, 1, 1)
         b = self.level_def["b"].values.reshape(n_levels, 1, 1)
 
-        pres_hf = a + b * psfc  # Half-level pressure
-        pres_hf_0 = pres_hf[0, :, :, :]
-        pres = (pres_hf_0[1:, :, :] + pres_hf_0[:-1, :, :]) / 2  # Full-level pressure
+        pres_hf = a + b * sp  # psfc  # Half-level pressure
+        pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
         pres = pres / 100  # Convert to hPa
         data["pres"] = (("level", "latitude", "longitude"), pres)
 
