@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cftime
 import netCDF4 as nc
+import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -13,6 +14,8 @@ from interpolator_for_wrfchem.global_models.prototype import GlobalModel
 
 class CAMS_Base(GlobalModel):
     """
+    Specific for the ADS-Beta that launched in Summer of 2024.
+
     Handles interactions w/ a directory of CAMS Global Atmospheric Composition forecasts.
     The given directory should contain a set of directories named `YYYY-MM-DD`, each
     containing a pair of `levtype_ml.nc` and `levtype_sfc.nc` files. This class handles
@@ -69,8 +72,8 @@ class CAMS_Base(GlobalModel):
             if not filepath.is_dir():
                 continue
 
-            sfc_lv = filepath / "levtype_sfc.nc"
-            ml_lv = filepath / "levtype_ml.nc"
+            sfc_lv = filepath / "data_sfc.nc"
+            ml_lv = filepath / "data_mlev.nc"
 
             if not sfc_lv.exists() or not ml_lv.exists():
                 continue
@@ -87,10 +90,13 @@ class CAMS_Base(GlobalModel):
         """Returns the date from a single file, as datetime object"""
 
         with nc.Dataset(filepath, "r") as ds:
-            time_var = ds.variables["time"][:]
-            units = ds.variables["time"].units
-            calendar = ds.variables["time"].calendar
-        return cftime.num2pydate(time_var, units, calendar)
+
+            time_var = ds.variables["valid_time"][:]
+            dates = time_var.flatten().tolist()
+            units = ds.variables["valid_time"].units
+            calendar = ds.variables["valid_time"].calendar
+
+        return cftime.num2pydate(dates, units, calendar)
 
     def get_dataset(self, t: dt.datetime) -> xr.Dataset:
         """
@@ -108,9 +114,18 @@ class CAMS_Base(GlobalModel):
         # Read surface pressure from sfc file
         with nc.Dataset(self.times[t]["sfc"], "r") as ds:
             ds.set_auto_mask(False)
-            time = ds.variables["time"]
-            time_idx = cftime.date2index(t, time, calendar=time.calendar)
-            sp = ds["sp"][time_idx, :, :]  # time, lat, lon
+            time = ds.variables["valid_time"]
+            cftime_seconds = cftime.date2num(
+                t, units=time.units, calendar=time.calendar
+            )
+            time_idx = np.where(
+                time == cftime_seconds
+            )  # Should contain 2 values, one for period and one for reference_time
+            sp = ds["sp"][*time_idx, :, :]  # period, reference_time, lat, lon
+
+        # Drop one of the two redundant time dimensions, so now we are working on (level, lat, lon)
+        # We pretty much name one of the time dimensions as "level"
+        sp = np.squeeze(sp, axis=0)
 
         with nc.Dataset(self.times[t]["ml"], "r") as ds:
             ds.set_auto_mask(False)
@@ -118,26 +133,32 @@ class CAMS_Base(GlobalModel):
             # Read variables
             data = {}
             for var in self.required_vars:
-                data[var] = (("level", "latitude", "longitude"), ds[var][time_idx, ...])
+
+                # Drop time dimensions w/ squeeze
+                data[var] = (
+                    ("level", "latitude", "longitude"),
+                    np.squeeze(ds[var][*time_idx, ...][:]),
+                )
 
             # Read coordinates
             data["longitude"] = ((ds["longitude"][:] - 180) % 360) - 180
             data["latitude"] = ds["latitude"][:]
-            data["level"] = ds["level"][:]
+            data["level"] = ds["model_level"][:]
 
         # Create the 3D pressure field
-        psfc = sp.reshape(1, *sp.shape)
         n_levels = len(self.level_def.index)
         a = self.level_def["a [Pa]"].values.reshape(n_levels, 1, 1)
         b = self.level_def["b"].values.reshape(n_levels, 1, 1)
 
-        pres_hf = a + b * psfc  # Half-level pressure
+        pres_hf = a + b * sp  # psfc  # Half-level pressure
         pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
         pres = pres / 100  # Convert to hPa
         data["pres"] = (("level", "latitude", "longitude"), pres)
 
-        # Create dataset
+        # Create the xarray Dataset
         ds = xr.Dataset(data)
+
+        # Create dataset
         ds = ds.set_coords(["longitude", "latitude", "level"])
 
         # Sort latitude and longitude, surface should be the first level
@@ -182,7 +203,7 @@ class CAMS_EAC4(CAMS_Base):
 class CAMS_Global_Forecasts(CAMS_Base):
     def __init__(self, dir: Path | str, required_vars: list[str] = []):
         """
-        Prepare a CAMS Global Atmospheric Forecast product, in model levels
+        Prepare a CAMS EAC4 reanalysis product, in model levels
 
         Args:
             dir: The directory containing the files
