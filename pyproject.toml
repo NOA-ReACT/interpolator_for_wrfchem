@@ -22,8 +22,8 @@ click = "^8.1.7"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.27.1"
-matplotlib = "^3.8.2"
-cartopy = "^0.22.0"
+matplotlib = "^3.10.3"
+cartopy = "^0.24.1"
 
 [build-system]
 requires = ["poetry-core"]
