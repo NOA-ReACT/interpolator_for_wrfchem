@@ -9,7 +9,6 @@ import xarray as xr
 from interpolator_for_wrfchem import utils
 from interpolator_for_wrfchem.global_models import GLOBAL_MODELS
 from interpolator_for_wrfchem.interpolation import interpolate_to_wrf
-from interpolator_for_wrfchem.met_em import MetEm
 from interpolator_for_wrfchem.species_map import SpeciesMap, convert_si
 from interpolator_for_wrfchem.wrf import WRFBoundary, WRFInput
 
@@ -66,9 +65,9 @@ def do_mappings(
             if squeeze:
                 arr = arr.squeeze()
 
-            assert (
-                arr.shape == shape
-            ), f"Shape mismatch for {alias}: {arr.shape} != {shape}"
+            assert arr.shape == shape, (
+                f"Shape mismatch for {alias}: {arr.shape} != {shape}"
+            )
 
             out[name] += (
                 convert_si(
@@ -124,7 +123,6 @@ def do_initial_conditions(
 
 def do_boundary_conditions(
     wrfbdy_path: Path,
-    met_em: MetEm,
     wrf_ds: xr.Dataset,
     global_model_ds: xr.Dataset,
     mapping: SpeciesMap,
@@ -133,7 +131,6 @@ def do_boundary_conditions(
 
     Args:
         wrfbdy_path: Path to the WRF boundary file (wrfbdy_d01)
-        met_em: MetEm object representing the met_em files
         wrf_ds: Dataset containing the WRF-CHEM domain's basic coordinates and pressure field
         global_model: Dataset containing the global model fields
         mapping: SpeciesMap object to map from global to WRF-CHEM species
@@ -142,7 +139,7 @@ def do_boundary_conditions(
     wrfbdy = WRFBoundary(wrfbdy_path)
 
     for t_idx, t in enumerate(wrfbdy.times):
-        wrf_pres = met_em.get_pres(t)
+        wrf_pres = wrf_ds["pres"]
 
         for bdy in ["BXS", "BXE", "BYS", "BYE"]:
             # Get WRF profile and replace pressure from met_em
@@ -198,10 +195,6 @@ def do_boundary_conditions(
     type=click.Path(exists=True, dir_okay=True, file_okay=False, path_type=Path),
 )
 @click.argument(
-    "met_em",
-    type=click.Path(exists=True, dir_okay=True, file_okay=False, path_type=Path),
-)
-@click.argument(
     "mapping",
     type=click.Path(exists=True, dir_okay=False, file_okay=True, path_type=Path),
 )
@@ -219,7 +212,6 @@ def do_boundary_conditions(
 def main(
     global_model: str,
     input_files: Path,
-    met_em: Path,
     mapping: Path,
     wrfinput: Path,
     wrfbdy: Optional[Path],
@@ -233,8 +225,7 @@ def main(
     Args:
         GLOBAL_MODEL: Global model to use
         INPUT_FILES: Path to directory containing the global model files. They must be
-                     in subdirectories per day, in YYYY-MM-DD foramt.
-        MET_EM: Path to the directory containing the met_em files.
+                     in subdirectories per day, in YYYY-MM-DD format.
         MAPPING: Path to the mapping file (toml) to use
         WRFINPUT: Path to the WRF input file
 
@@ -258,9 +249,6 @@ def main(
     wrf_ds = wrf.get_dataset()
     print(wrf)
 
-    met_em = MetEm(Path(met_em), wrf_ds)
-    print(met_em)
-
     global_model = GLOBAL_MODELS[global_model](
         Path(input_files), mapping.required_source_species
     )
@@ -281,6 +269,6 @@ def main(
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
-        do_boundary_conditions(wrfbdy, met_em, wrf_ds, global_model_ds, mapping)
+        do_boundary_conditions(wrfbdy, wrf_ds, global_model_ds, mapping)
 
     wrf.close()
