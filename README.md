@@ -25,8 +25,8 @@ pip install interpolator-for-wrfchem
 
 The workflow for using the interpolator is as follows:
 
-1. Use WPS and `real.exe` as usual to generate the `met_em`, `wrfinput`, and `wrfbdy` files.
-2. Download global chemistry model fields (e.g. CAMS EAC4) for the same time period as the WRF simulation.
+1. Use WPS and `real.exe` as usual to generate the `wrfinput` and `wrfbdy` files.
+2. Download global chemistry model fields (e.g. CAMS EAC4 or global forecasts) for the same time period as the WRF simulation.
 3. Run the interpolator to interpolate the global chemistry model fields to the WRF-CHEM grid and vertical levels.
 4. Run WRF-CHEM.
 
@@ -37,13 +37,15 @@ The interpolator will update `wrfinput` and `wrfbdy` files to include the chemis
 The interpolator is a command-line tool and can be run as follows:
 
 ```bash
-interpolator-for-wrfchem <global model name> <global model data path> <met_em path> <species map path> <wrfinput path>
+interpolator-for-wrfchem <global model name> <global model data path> <species map path> <wrfinput path>
 ```
 
 The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**! The `global model name` can be one of the following:
 
 - `cams_eac4`: CAMS EAC4 data (w/ 60 vertical levels)
 - `cams_global_forecasts`: CAMS global forecasts (w/ 137 vertical levels)
+
+You can add support for other global models by implementing a subclass of `GlobalModel`, check the `global_models/prototype.py` file for details.
 
 There are some optional flags:
 
@@ -86,10 +88,8 @@ global_model_ds = global_model.get_dataset(wrf.time)
 do_initial_conditions(wrf, wrf_ds, global_model_ds, mapping, diagnostics)
 wrf.close()
 
-# Represents a folder of met_em files. Required only for the boundary conditions.
-met_em = MetEm(met_em_path, wrf_ds)
 # Do boundary condition interpolation and MODIFY wrfbdy_d01
-do_boundary_conditions(wrfbdy, met_em, wrf_ds, global_model_ds, mapping)
+do_boundary_conditions(wrfbdy, wrf_ds, global_model_ds, mapping)
 ```
 
 The interpolation routines are available inside the `interpolation.py` file and are applied to xarray Datasets, so they might be useful in other projects as well.
