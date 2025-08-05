@@ -90,7 +90,6 @@ class CAMS_Base(GlobalModel):
         """Returns the date from a single file, as datetime object"""
 
         with nc.Dataset(filepath, "r") as ds:
-
             time_var = ds.variables["valid_time"][:]
             dates = time_var.flatten().tolist()
             units = ds.variables["valid_time"].units
@@ -115,13 +114,26 @@ class CAMS_Base(GlobalModel):
         with nc.Dataset(self.times[t]["sfc"], "r") as ds:
             ds.set_auto_mask(False)
             time = ds.variables["valid_time"]
+            time_dims = time.dimensions
             cftime_seconds = cftime.date2num(
                 t, units=time.units, calendar=time.calendar
             )
             time_idx = np.where(
                 time == cftime_seconds
             )  # Should contain 2 values, one for period and one for reference_time
-            sp = ds["sp"][*time_idx, :, :]  # period, reference_time, lat, lon
+            time_idx = {dim: idx for dim, idx in zip(time_dims, time_idx)}
+
+            sp_var = ds["sp"]
+
+            # The time dimensions might not be in the same order between `valid_time` and `sp`, so
+            # we make sure we index the correct things
+            time_idx_4d = tuple(
+                time_idx[dim] if dim in time_idx else slice(None)
+                for dim in sp_var.dimensions
+            )
+            sp = sp_var[*time_idx_4d]
+
+            # sp = ds["sp"][*time_idx, :, :]  # period, reference_time, lat, lon
 
         # Drop one of the two redundant time dimensions, so now we are working on (level, lat, lon)
         # We pretty much name one of the time dimensions as "level"
@@ -130,14 +142,20 @@ class CAMS_Base(GlobalModel):
         with nc.Dataset(self.times[t]["ml"], "r") as ds:
             ds.set_auto_mask(False)
 
+            assert ds[self.required_vars[0]].dimensions[-2:] == (
+                "latitude",
+                "longitude",
+            ), (
+                "The last two dimensions of the variables should be latitude and longitude in this order"
+            )
+
             # Read variables
             data = {}
             for var in self.required_vars:
-
                 # Drop time dimensions w/ squeeze
                 data[var] = (
                     ("level", "latitude", "longitude"),
-                    np.squeeze(ds[var][*time_idx, ...][:]),
+                    np.squeeze(ds[var][*time_idx_4d][:]),
                 )
 
             # Read coordinates
