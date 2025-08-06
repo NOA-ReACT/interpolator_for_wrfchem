@@ -50,6 +50,13 @@ def _interpolate_hoz(wrf: xr.Dataset, gm: xr.Dataset, var: str) -> xr.Dataset:
     Horizontally interpolate variable `var` from global model `gm` to WRF `wrf`
     """
 
+    assert (gm.longitude.diff("longitude") > 0).all(), (
+        "Longitude values must be increasing"
+    )
+    assert (gm.latitude.diff("latitude") > 0).all(), (
+        "Latitude values must be increasing"
+    )
+
     out = np.empty((gm.sizes["level"], *wrf.XLONG.shape))
     for l in range(gm.sizes["level"]):
         interp = interpolate.RectBivariateSpline(
@@ -77,12 +84,15 @@ def _interpolate_ver(
     out = xr.zeros_like(wrf_pres)
     for x in range(wrf_pres.sizes["west_east"]):
         for y in range(wrf_pres.sizes["south_north"]):
+            var_at_xy = var.isel(west_east=x, south_north=y)
+
             arr = interpolate.interp1d(
                 gm_pres.isel(west_east=x, south_north=y),
-                var.isel(west_east=x, south_north=y),
+                var_at_xy,
                 kind="linear",
-                fill_value="extrapolate",
+                fill_value=(0, var_at_xy.isel(level=0).item()),
                 copy=False,
+                bounds_error=False,
             )(wrf_pres.isel(west_east=x, south_north=y))
             out[dict(west_east=x, south_north=y)] = np.clip(arr, a_min=0, a_max=None)
     return out
