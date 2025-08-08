@@ -257,7 +257,7 @@ def main(
     # Interpolate initial conditions
     if wrf.time not in global_model.times:
         raise RuntimeError(
-            f"Could not find global model file for wrfinput time {wrf.nc_file_time}"
+            f"Could not find global model file for wrfinput time {wrf.time}"
         )
 
     global_model_ds = global_model.get_dataset(wrf.time)
