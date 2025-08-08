@@ -1,0 +1,1 @@
+This folder is an archive of random small scripts and notebooks related to the project. Mostly for exploratory data analysis or testing.

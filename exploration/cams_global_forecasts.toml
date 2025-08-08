@@ -1,0 +1,163 @@
+[meta]
+name = "ATMOHUB CAMS GLOBAL FORECASTS to GOCART chem scheme"
+version = 2
+
+[aliases_source]
+CAMS01 = "aermr01"
+CAMS02 = "aermr02"
+CAMS03 = "aermr03"
+CAMS04 = "aermr04"
+CAMS05 = "aermr05"
+CAMS06 = "aermr06"
+CAMS07 = "aermr07"
+CAMS08 = "aermr08"
+CAMS09 = "aermr09"
+CAMS10 = "aermr10"
+CAMS11 = "aermr11"
+CAMS12 = "co"
+CAMS13 = "c2h6"
+CAMS14 = "hcho"
+CAMS15 = "h2o2"
+CAMS16 = "oh"
+CAMS17 = "c5h8"
+CAMS18 = "ch4_c"
+CAMS19 = "aermr17"
+CAMS20 = "aermr16"
+CAMS21 = "no2"
+CAMS22 = "no"
+CAMS23 = "go3"
+CAMS24 = "pan"
+CAMS25 = "c3h8"
+CAMS26 = "so2"
+CAMS27 = "q"
+CAMS28 = "lnsp"
+CAMS29 = "z"
+CAMS30 = "sp"
+
+[aliases_target]
+
+[species_map.DUST_1]
+coeffs = { CAMS04 = 0.9627, CAMS05 = 1.0, CAMS06 = 0.01616 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_2]
+coeffs = { CAMS06 = 0.1895 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_3]
+coeffs = { CAMS06 = 0.2961 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_4]
+coeffs = { CAMS06 = 0.3549 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_5]
+coeffs = { CAMS06 = 0.1073 }
+units = { global = "k", regional = "u" }
+
+[species_map.SEAS_1]
+coeffs = { CAMS01 = 0.8186, CAMS02 = 0.0519 }
+units = { global = "k", regional = "u" }
+weight = 0.232558
+
+[species_map.SEAS_2]
+coeffs = { CAMS02 = 0.3746 }
+units = { global = "k", regional = "u" }
+weight = 0.232558
+
+[species_map.SEAS_3]
+coeffs = { CAMS02 = 0.5735, CAMS03 = 0.69 }
+units = { global = "k", regional = "u" }
+weight = 0.232558
+
+[species_map.SEAS_4]
+coeffs = { CAMS03 = 0.30994 }
+units = { global = "k", regional = "u" }
+weight = 0.232558
+
+[species_map.OC1]
+coeffs = { CAMS09 = 1.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.OC2]
+coeffs = { CAMS10 = 1.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.BC1]
+coeffs = { CAMS09 = 1.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.BC2]
+coeffs = { CAMS10 = 1.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.sulf]
+coeffs = { CAMS11 = 0.301519009 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.co]
+coeffs = { CAMS12 = 1.034080564 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.eth]
+coeffs = { CAMS13 = 0.963274469 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.hcho]
+coeffs = { CAMS14 = 0.964653967 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.h2o2]
+coeffs = { CAMS15 = 0.851535278 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.ho]
+coeffs = { CAMS16 = 1.703015483 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.ch4]
+coeffs = { CAMS18 = 1.805497896 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.no3]
+coeffs = { CAMS20 = 0.467135662 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.no2]
+coeffs = { CAMS21 = 0.629592114 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.no]
+coeffs = { CAMS22 = 0.965293724 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.o3]
+coeffs = { CAMS23 = 0.60345388 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.pan]
+coeffs = { CAMS24 = 0.239280985 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.hc3]
+coeffs = { CAMS25 = 0.656861456 }
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.so2]
+coeffs = { CAMS26 = 0.452122728 }
+units = { global = "k", regional = "k" }
+weight = 1e6

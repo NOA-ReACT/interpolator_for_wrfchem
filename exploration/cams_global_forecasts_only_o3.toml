@@ -1,0 +1,12 @@
+[meta]
+name = "ATMOHUB CAMS GLOBAL FORECASTS to GOCART chem scheme ONLY O3"
+version = 2
+
+[aliases_source]
+
+[aliases_target]
+
+[species_map.o3]
+coeffs = { go3 = 0.60345388 }
+units = { global = "k", regional = "k" }
+weight = 1e6
