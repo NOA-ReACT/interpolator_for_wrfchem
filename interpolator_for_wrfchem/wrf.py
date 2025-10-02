@@ -81,7 +81,21 @@ class WRFBoundary:
 
     def _get_times(self) -> list[dt.datetime]:
         """Read the lateral boundary update times from the wrfbdy file"""
-        times = self.nc_file.variables["Times"]
+
+        # The required timesteps are everything mentioned in `md___thisbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_`
+        # and the last timestep mentioned in `md___nextbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_`.
+        # The latter is needed only to compute the last tendency, it is not stored as a dimension of `Time`.
+        times = np.concatenate(
+            [
+                self.nc_file.variables[
+                    "md___thisbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_"
+                ][:],
+                self.nc_file.variables[
+                    "md___nextbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_"
+                ][-1:],
+            ]
+        )
+
         times = [
             dt.datetime.strptime(nc.chartostring(t).item(), "%Y-%m-%d_%H:%M:%S")
             for t in times

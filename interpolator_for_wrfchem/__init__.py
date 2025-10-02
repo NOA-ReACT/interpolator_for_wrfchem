@@ -138,6 +138,7 @@ def do_boundary_conditions(
 
     wrfbdy = WRFBoundary(wrfbdy_path)
 
+    interp_last_t = {}
     for t_idx, t in enumerate(wrfbdy.times):
         wrf_pres = wrf_ds["pres"]
 
@@ -156,36 +157,49 @@ def do_boundary_conditions(
             # boundary conditions, but now we don't need the extra dimension.
             wrf_vars = do_mappings(mapping, cams_bdy, wrf_bdy.pres.shape, squeeze=True)
 
-            # Write to wrfbdy
+            # Write to wrfbdy, except the last time step, which is only used for tendencies
             for name, arr in wrf_vars.items():
                 alias = mapping.aliases_target.get(name, name) + f"_{bdy}"
+
+                if t == wrfbdy.times[-1]:
+                    interp_last_t[alias] = arr.to_numpy()
+                    continue
 
                 if alias not in wrfbdy.nc_file.variables:
                     wrfbdy.nc_file.createVariable(alias, "f4", ("Time", *arr.dims))
                 wrfbdy.nc_file.variables[alias][t_idx, ...] = arr
 
-        # Compute tendencies
-        # For each boundary, store the difference between the current and previous value
-        # inside the {var}_BT{bdy} variable, where {bdy} is one of XS, XE, YS, YE.
-        for t_idx, t in enumerate(wrfbdy.times):
-            if t_idx == 0:
-                continue
-            dt = (t - wrfbdy.times[t_idx - 1]).total_seconds()
+    # Compute tendencies
+    # For each boundary, store the difference between the current and previous value
+    # inside the {var}_BT{bdy} variable, where {bdy} is one of XS, XE, YS, YE.
+    # At this point, the `interp_last_t` variable contains the interpolated values for the last
+    # timestep, which should be used as the "next" value for the last timestep.
+    for t_idx, t in enumerate(wrfbdy.times):
+        if t_idx == len(wrfbdy.times) - 1:
+            continue  # No tendency for last time step
 
-            for name in wrf_vars.keys():
-                for bdy in ["XS", "XE", "YS", "YE"]:
-                    bdy_var = f"{name}_B{bdy}"
-                    bdy_t_var = f"{name}_BT{bdy}"
+        dt = (t - wrfbdy.times[t_idx + 1]).total_seconds()
 
-                    if bdy_t_var not in wrfbdy.nc_file.variables:
-                        wrfbdy.nc_file.createVariable(
-                            bdy_t_var, "f4", wrfbdy.nc_file[bdy_var].dimensions
-                        )
+        for name in wrf_vars.keys():
+            for bdy in ["XS", "XE", "YS", "YE"]:
+                bdy_var = f"{name}_B{bdy}"
+                bdy_t_var = f"{name}_BT{bdy}"
 
-                    wrfbdy.nc_file.variables[bdy_t_var][t_idx, ...] = (
-                        wrfbdy.nc_file.variables[bdy_var][t_idx, ...]
-                        - wrfbdy.nc_file.variables[bdy_var][t_idx - 1, ...]
-                    ) / dt
+                if bdy_t_var not in wrfbdy.nc_file.variables:
+                    wrfbdy.nc_file.createVariable(
+                        bdy_t_var, "f4", wrfbdy.nc_file[bdy_var].dimensions
+                    )
+
+                curr_var = wrfbdy.nc_file.variables[bdy_var][t_idx, ...]
+                next_var = (
+                    wrfbdy.nc_file.variables[bdy_var][t_idx + 1, ...]
+                    if t != wrfbdy.times[-2]
+                    else interp_last_t[bdy_var]
+                )
+
+                wrfbdy.nc_file.variables[bdy_t_var][t_idx, ...] = (
+                    next_var - curr_var
+                ) / dt
 
 
 @click.command(name="interpolator-for-wrf")
