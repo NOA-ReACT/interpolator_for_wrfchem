@@ -178,7 +178,7 @@ def do_boundary_conditions(
         if t_idx == len(wrfbdy.times) - 1:
             continue  # No tendency for last time step
 
-        dt = (t - wrfbdy.times[t_idx + 1]).total_seconds()
+        dt = (wrfbdy.times[t_idx + 1] - t).total_seconds()
 
         for name in wrf_vars.keys():
             for bdy in ["XS", "XE", "YS", "YE"]:
