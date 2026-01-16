@@ -124,7 +124,7 @@ def do_initial_conditions(
 def do_boundary_conditions(
     wrfbdy_path: Path,
     wrf_ds: xr.Dataset,
-    global_model_ds: xr.Dataset,
+    global_model,
     mapping: SpeciesMap,
 ):
     """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
@@ -132,7 +132,7 @@ def do_boundary_conditions(
     Args:
         wrfbdy_path: Path to the WRF boundary file (wrfbdy_d01)
         wrf_ds: Dataset containing the WRF-CHEM domain's basic coordinates and pressure field
-        global_model: Dataset containing the global model fields
+        global_model: GlobalModel object to fetch global model fields for each time
         mapping: SpeciesMap object to map from global to WRF-CHEM species
     """
 
@@ -140,6 +140,13 @@ def do_boundary_conditions(
 
     interp_last_t = {}
     for t_idx, t in enumerate(wrfbdy.times):
+        # Fetch global model data for this specific time
+        if t not in global_model.available_times:
+            raise RuntimeError(
+                f"Could not find global model file for boundary time {t}"
+            )
+        global_model_ds = global_model.get_dataset(t)
+
         wrf_pres = wrf_ds["pres"]
 
         for bdy in ["BXS", "BXE", "BYS", "BYE"]:
@@ -283,6 +290,6 @@ def main(
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
-        do_boundary_conditions(wrfbdy, wrf_ds, global_model_ds, mapping)
+        do_boundary_conditions(wrfbdy, wrf_ds, global_model, mapping)
 
     wrf.close()
