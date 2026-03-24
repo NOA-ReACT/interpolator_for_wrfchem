@@ -44,6 +44,7 @@ The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**! The `global model name` 
 
 - `cams_eac4`: CAMS EAC4 data (w/ 60 vertical levels)
 - `cams_global_forecasts`: CAMS global forecasts (w/ 137 vertical levels)
+- `wrfout`: Use a WRF forecast as the source model. The domain of the forecasts should cover the entirety of the domain of `wrfinput`.
 
 You can add support for other global models by implementing a subclass of `GlobalModel`, check the `global_models/prototype.py` file for details.
 
