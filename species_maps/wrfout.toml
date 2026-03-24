@@ -1,0 +1,27 @@
+[meta]
+name = "WRF-to-WRF mapping (no-op)"
+version = 2
+
+[aliases_source]
+
+[aliases_target]
+
+[species_map.DUST_1]
+coeffs = { DUST_1 = 1.0 }
+units = { global = "u", regional = "u" }
+
+[species_map.DUST_2]
+coeffs = { DUST_2 = 1.0 }
+units = { global = "u", regional = "u" }
+
+[species_map.DUST_3]
+coeffs = { DUST_3 = 1.0 }
+units = { global = "u", regional = "u" }
+
+[species_map.DUST_4]
+coeffs = { DUST_4 = 1.0 }
+units = { global = "u", regional = "u" }
+
+[species_map.DUST_5]
+coeffs = { DUST_5 = 1.0 }
+units = { global = "u", regional = "u" }

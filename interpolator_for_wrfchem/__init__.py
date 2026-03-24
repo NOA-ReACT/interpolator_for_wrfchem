@@ -126,6 +126,7 @@ def do_boundary_conditions(
     wrf_ds: xr.Dataset,
     global_model,
     mapping: SpeciesMap,
+    skip_vertical: bool = False,
 ):
     """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
 
@@ -146,6 +147,8 @@ def do_boundary_conditions(
                 f"Could not find global model file for boundary time {t}"
             )
         global_model_ds = global_model.get_dataset(t)
+        if skip_vertical:
+            global_model_ds.attrs["skip_vertical"] = True
 
         wrf_pres = wrf_ds["pres"]
 
@@ -275,6 +278,20 @@ def main(
     )
     print(global_model)
 
+    # If the global model needs coordinate transformation (e.g., wrfout projected grid)
+    if hasattr(global_model, "transform_target_coords"):
+        wrf_ds = global_model.transform_target_coords(wrf_ds)
+
+    # Detect matching vertical levels: if source and target share the same eta levels
+    # (ZNU), vertical interpolation is unnecessary and skipped entirely.
+    skip_vertical = False
+    if hasattr(global_model, "znu") and "ZNU" in wrf_ds.coords:
+        src_znu = global_model.znu
+        dst_znu = wrf_ds.ZNU.values
+        if len(src_znu) == len(dst_znu) and np.allclose(src_znu, dst_znu):
+            skip_vertical = True
+            print("Source and target WRF vertical levels match — skipping vertical interpolation")
+
     # Interpolate initial conditions
     if wrf.time not in global_model.times:
         raise RuntimeError(
@@ -282,6 +299,8 @@ def main(
         )
 
     global_model_ds = global_model.get_dataset(wrf.time)
+    if skip_vertical:
+        global_model_ds.attrs["skip_vertical"] = True
 
     # Initial conditions
     if not no_ic:
@@ -290,6 +309,6 @@ def main(
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
-        do_boundary_conditions(wrfbdy, wrf_ds, global_model, mapping)
+        do_boundary_conditions(wrfbdy, wrf_ds, global_model, mapping, skip_vertical=skip_vertical)
 
     wrf.close()

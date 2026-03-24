@@ -7,40 +7,68 @@ def interpolate_to_wrf(wrf: xr.Dataset, gm: xr.Dataset):
     """
     Interpolate all variables of a global model `gm` to the coordinates of a WRF `wrf` dataset.
 
+    Coordinate names are read from dataset attributes, with defaults for backward compatibility:
+        - gm.attrs["hoz_coord_x"] (default: "longitude") — 1D regular x-axis in gm
+        - gm.attrs["hoz_coord_y"] (default: "latitude")  — 1D regular y-axis in gm
+        - wrf.attrs["hoz_eval_x"] (default: "XLONG") — 2D evaluation x-coords in wrf
+        - wrf.attrs["hoz_eval_y"] (default: "XLAT")  — 2D evaluation y-coords in wrf
+
     Required variables in `gm`:
-        - longitude
-        - latitude
+        - hoz_coord_x, hoz_coord_y (1D coordinates)
         - level
         - pres (pressure field)
         - Any other variable will be interpolated
 
     Required variables in `wrf`:
-        - XLONG
-        - XLAT
+        - hoz_eval_x, hoz_eval_y (2D coordinates)
         - pres (pressure field, PB + P)
     """
 
+    gm_x = gm.attrs.get("hoz_coord_x", "longitude")
+    gm_y = gm.attrs.get("hoz_coord_y", "latitude")
+    wrf_x = wrf.attrs.get("hoz_eval_x", "XLONG")
+    wrf_y = wrf.attrs.get("hoz_eval_y", "XLAT")
+
     # Check required variables
-    for var in ["longitude", "latitude", "level", "pres"]:
+    for var in [gm_x, gm_y, "level", "pres"]:
         if var not in gm.variables:
             raise RuntimeError(f"Variable {var} not found in global model dataset")
 
-    for var in ["XLONG", "XLAT", "pres"]:
+    for var in [wrf_x, wrf_y, "pres"]:
         if var not in wrf.variables:
             raise RuntimeError(f"Variable {var} not found in WRF dataset")
 
-    # Horizontally interpolate pressure
-    gm_pres = _interpolate_hoz(wrf, gm, "pres")
+    skip_vertical = gm.attrs.get("skip_vertical", False)
+
+    # Horizontally interpolate pressure (only needed for vertical interpolation)
+    if not skip_vertical:
+        gm_pres = _interpolate_hoz(wrf, gm, "pres")
 
     # Interpolate each variable
+    coord_vars = {gm_x, gm_y, "level", "pres", "ZNU"}
     out = {}
     for var in gm.variables:
-        if var in ["longitude", "latitude", "level", "pres"]:
+        if var in coord_vars:
             continue
 
         hoz_var = _interpolate_hoz(wrf, gm, var)
-        out[f"{var}_hoz"] = hoz_var
-        out[var] = _interpolate_ver(wrf.pres, gm_pres, hoz_var)
+
+        if skip_vertical:
+            vert_dim = wrf.pres.dims[0]
+            # Sort surface-first (ZNU ≈ 1.0 at index 0) to match the target WRF's
+            # bottom_top ordering, then rename the level dim.
+            da = (
+                hoz_var
+                .assign_coords(ZNU=("level", gm["ZNU"].values))
+                .sortby("ZNU", ascending=False)
+                .drop_vars("ZNU")
+                .rename({"level": vert_dim})
+            )
+            out[f"{var}_hoz"] = da
+            out[var] = da
+        else:
+            out[f"{var}_hoz"] = hoz_var
+            out[var] = _interpolate_ver(wrf.pres, gm_pres, hoz_var)
 
     return xr.Dataset(out)
 
@@ -50,21 +78,22 @@ def _interpolate_hoz(wrf: xr.Dataset, gm: xr.Dataset, var: str) -> xr.Dataset:
     Horizontally interpolate variable `var` from global model `gm` to WRF `wrf`
     """
 
-    assert (gm.longitude.diff("longitude") > 0).all(), (
-        "Longitude values must be increasing"
-    )
-    assert (gm.latitude.diff("latitude") > 0).all(), (
-        "Latitude values must be increasing"
-    )
+    gm_x = gm.attrs.get("hoz_coord_x", "longitude")
+    gm_y = gm.attrs.get("hoz_coord_y", "latitude")
+    wrf_x = wrf.attrs.get("hoz_eval_x", "XLONG")
+    wrf_y = wrf.attrs.get("hoz_eval_y", "XLAT")
 
-    out = np.empty((gm.sizes["level"], *wrf.XLONG.shape))
+    assert (gm[gm_x].diff(gm_x) > 0).all(), f"{gm_x} values must be increasing"
+    assert (gm[gm_y].diff(gm_y) > 0).all(), f"{gm_y} values must be increasing"
+
+    out = np.empty((gm.sizes["level"], *wrf[wrf_x].shape))
     for l in range(gm.sizes["level"]):
         interp = interpolate.RectBivariateSpline(
-            gm.latitude,
-            gm.longitude,
+            gm[gm_y],
+            gm[gm_x],
             gm[var].isel(level=l),
         )
-        out[l, ...] = interp(wrf.XLAT, wrf.XLONG, grid=False)
+        out[l, ...] = interp(wrf[wrf_y], wrf[wrf_x], grid=False)
 
     return xr.DataArray(out, dims=("level", "south_north", "west_east"))
 
