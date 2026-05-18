@@ -70,6 +70,7 @@ class WRFOutput(GlobalModel):
             self.dx = float(ds.DX)
             self.dy = float(ds.DY)
             self.znu = ds.variables["ZNU"][0, :]
+            self.znw = ds.variables["ZNW"][0, :]
             map_proj = int(ds.MAP_PROJ)
 
             if map_proj == 1:  # Lambert Conformal Conic
@@ -120,6 +121,16 @@ class WRFOutput(GlobalModel):
                 ds.variables["P"][0, :, :, :] + ds.variables["PB"][0, :, :, :]
             ) * 0.01
 
+            # Reconstruct half-level (interface) pressure from the dry-mass
+            # coordinate: p_hf[k] = ZNW[k] · (MU + MUB) + P_TOP.
+            mu = ds.variables["MU"][0, :, :]
+            mub = ds.variables["MUB"][0, :, :]
+            p_top = float(ds.variables["P_TOP"][0])
+            mu_total = (mu + mub)[np.newaxis, :, :]
+            pres_hf = (
+                self.znw[:, np.newaxis, np.newaxis] * mu_total + p_top
+            ) * 0.01
+
             # Read required chemistry variables
             data = {}
             for var in self.required_vars:
@@ -134,18 +145,22 @@ class WRFOutput(GlobalModel):
 
         n_levels = pres.shape[0]
         data["pres"] = (("level", "y", "x"), pres)
+        data["pres_hf"] = (("level_hf", "y", "x"), pres_hf)
         data["x"] = x_1d
         data["y"] = y_1d
         data["level"] = np.arange(1, n_levels + 1)
+        data["level_hf"] = np.arange(0, n_levels + 1)
         data["ZNU"] = ("level", self.znu)
+        data["ZNW"] = ("level_hf", self.znw)
 
         ds = xr.Dataset(data)
-        ds = ds.set_coords(["x", "y", "level", "ZNU"])
+        ds = ds.set_coords(["x", "y", "level", "level_hf", "ZNU", "ZNW"])
 
         # Sort: surface first (descending level = descending pressure)
         ds = ds.sortby("y")
         ds = ds.sortby("x")
         ds = ds.sortby("level", ascending=False)
+        ds = ds.sortby("level_hf", ascending=False)
 
         # Set coordinate name attrs for the interpolation code
         ds.attrs["hoz_coord_x"] = "x"

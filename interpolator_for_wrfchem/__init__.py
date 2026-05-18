@@ -88,6 +88,7 @@ def do_initial_conditions(
     global_model_ds: xr.Dataset,
     mappings: SpeciesMap,
     write_diagnostics=False,
+    below_surface: str = "clamp",
 ):
     """Interpolate global model fields to WRF-Chem domain for initial conditions.
 
@@ -97,9 +98,13 @@ def do_initial_conditions(
         global_model_ds: xarray.Dataset containing the global model fields
         mappings: SpeciesMap object to map from global to WRF-CHEM species
         write_diagnostics: Whether to write out a diagnostic file for debugging purposes.
+        below_surface: Policy for WRF half-levels below the global-model surface;
+            see ``interpolate_to_wrf``.
     """
 
-    interp_ds = interpolate_to_wrf(wrf_ds, global_model_ds)
+    interp_ds = interpolate_to_wrf(
+        wrf_ds, global_model_ds, below_surface=below_surface
+    )
 
     # Write interpolated source field to diagnostic file, if enabled.
     if write_diagnostics:
@@ -127,6 +132,7 @@ def do_boundary_conditions(
     global_model,
     mapping: SpeciesMap,
     skip_vertical: bool = False,
+    below_surface: str = "clamp",
 ):
     """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
 
@@ -158,7 +164,9 @@ def do_boundary_conditions(
             wrf_bdy["pres"] = utils.get_boundary_profile(wrf_pres, bdy)
 
             # Interpolate to CAMS
-            cams_bdy = interpolate_to_wrf(wrf_bdy, global_model_ds)
+            cams_bdy = interpolate_to_wrf(
+                wrf_bdy, global_model_ds, below_surface=below_surface
+            )
 
             # Do mappings
             # We use squeeze here because up until this point, all arrays keep their
@@ -233,6 +241,17 @@ def do_boundary_conditions(
 @click.option("--no-ic", is_flag=True)
 @click.option("--copy-icbc", is_flag=True)
 @click.option("--diagnostics", is_flag=True)
+@click.option(
+    "--below-surface-fill",
+    type=click.Choice(["clamp", "extend"]),
+    default="clamp",
+    help=(
+        "How to fill WRF half-levels that sit below the global model's surface "
+        "(deepest WRF layer in low-elevation cells). 'clamp' is strictly "
+        "mass-conservative (no extra mass below the source surface); 'extend' "
+        "holds the near-surface mixing ratio constant down to the WRF surface."
+    ),
+)
 def main(
     global_model: str,
     input_files: Path,
@@ -242,6 +261,7 @@ def main(
     no_ic: bool,
     copy_icbc: bool,
     diagnostics: bool,
+    below_surface_fill: str,
 ):
     """
     Interpolate global model fields to WRF-Chem input files.
@@ -304,11 +324,25 @@ def main(
 
     # Initial conditions
     if not no_ic:
-        do_initial_conditions(wrf, wrf_ds, global_model_ds, mapping, diagnostics)
+        do_initial_conditions(
+            wrf,
+            wrf_ds,
+            global_model_ds,
+            mapping,
+            diagnostics,
+            below_surface=below_surface_fill,
+        )
 
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
-        do_boundary_conditions(wrfbdy, wrf_ds, global_model, mapping, skip_vertical=skip_vertical)
+        do_boundary_conditions(
+            wrfbdy,
+            wrf_ds,
+            global_model,
+            mapping,
+            skip_vertical=skip_vertical,
+            below_surface=below_surface_fill,
+        )
 
     wrf.close()

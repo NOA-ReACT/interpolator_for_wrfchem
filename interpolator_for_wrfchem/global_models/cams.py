@@ -158,26 +158,33 @@ class CAMS_ModelLevel_Base(CAMS_Base):
             data["latitude"] = ds["latitude"][:]
             data["level"] = ds["model_level"][:]
 
-        # Create the 3D pressure field
-        n_levels = len(self.level_def.index)
-        a = self.level_def["a [Pa]"].values.reshape(n_levels, 1, 1)
-        b = self.level_def["b"].values.reshape(n_levels, 1, 1)
+        # Create the 3D pressure field.
+        # `level_def` has n_levels+1 rows: each is a half-level edge, from model
+        # top (row 0) to surface (row n_levels). Full-level (centre) pressure is
+        # the average of the bracketing half-level pressures.
+        n_levels_hf = len(self.level_def.index)
+        a = self.level_def["a [Pa]"].values.reshape(n_levels_hf, 1, 1)
+        b = self.level_def["b"].values.reshape(n_levels_hf, 1, 1)
 
-        pres_hf = a + b * sp  # psfc  # Half-level pressure
+        pres_hf = a + b * sp  # Half-level (interface) pressure, Pa
         pres = (pres_hf[1:, :, :] + pres_hf[:-1, :, :]) / 2  # Full-level pressure
         pres = pres / 100  # Convert to hPa
+        pres_hf = pres_hf / 100  # Convert to hPa
         data["pres"] = (("level", "latitude", "longitude"), pres)
+        data["pres_hf"] = (("level_hf", "latitude", "longitude"), pres_hf)
+        data["level_hf"] = np.arange(n_levels_hf)
 
         # Create the xarray Dataset
         ds = xr.Dataset(data)
 
         # Create dataset
-        ds = ds.set_coords(["longitude", "latitude", "level"])
+        ds = ds.set_coords(["longitude", "latitude", "level", "level_hf"])
 
         # Sort latitude and longitude, surface should be the first level
         ds = ds.sortby("latitude")
         ds = ds.sortby("longitude")
         ds = ds.sortby("level", ascending=False)
+        ds = ds.sortby("level_hf", ascending=False)
 
         return ds
 

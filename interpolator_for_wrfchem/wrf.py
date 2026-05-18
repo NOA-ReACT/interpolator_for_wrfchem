@@ -33,7 +33,13 @@ class WRFInput:
         return dt.datetime.strptime(t, "%Y-%m-%d_%H:%M:%S")
 
     def get_dataset(self):
-        """Return a xarray.Dataset containing the basic coordinates and the pressure field."""
+        """Return a xarray.Dataset containing the basic coordinates and the pressure field.
+
+        Both full-level (mass-level) and half-level (interface) pressures are
+        provided. The latter is reconstructed from the WRF dry-mass coordinate:
+            p_hf[k] = ZNW[k] · (MU + MUB) + P_TOP
+        and is needed by the mass-conservative vertical interpolation.
+        """
 
         xlong = self.nc_file.variables["XLONG"][0, :, :]
         xlat = self.nc_file.variables["XLAT"][0, :, :]
@@ -42,19 +48,33 @@ class WRFInput:
             + self.nc_file.variables["PB"][0, :, :, :]
         ) * 0.01
         level = np.arange(1, self.size_bottom_top + 1)
+        level_hf = np.arange(0, self.size_bottom_top + 1)
+
+        znw = self.nc_file.variables["ZNW"][0, :]
+        mu = self.nc_file.variables["MU"][0, :, :]
+        mub = self.nc_file.variables["MUB"][0, :, :]
+        p_top = float(self.nc_file.variables["P_TOP"][0])
+        mu_total = (mu + mub)[np.newaxis, :, :]
+        pres_hf = (znw[:, np.newaxis, np.newaxis] * mu_total + p_top) * 0.01
 
         return xr.Dataset(
             {
                 "pres": (("bottom_top", "south_north", "west_east"), pres),
+                "pres_hf": (
+                    ("bottom_top_stag", "south_north", "west_east"),
+                    pres_hf,
+                ),
             },
             coords={
                 "XLONG": (("south_north", "west_east"), xlong),
                 "XLAT": (("south_north", "west_east"), xlat),
                 "ZNU": (("bottom_top",), self.nc_file.variables["ZNU"][0, :]),
+                "ZNW": (("bottom_top_stag",), znw),
                 "level": (("bottom_top",), level),
+                "level_hf": (("bottom_top_stag",), level_hf),
             },
             attrs={
-                "P_TOP": self.nc_file.variables["P_TOP"][0],
+                "P_TOP": p_top,
             },
         )
 
