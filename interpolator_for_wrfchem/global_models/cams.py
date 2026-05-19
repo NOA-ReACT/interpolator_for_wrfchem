@@ -207,12 +207,13 @@ class CAMS_PressureLevel_Base(CAMS_Base):
                 continue
 
             plev = filepath / "data_plev.nc"
+            sfc = filepath / "data_sfc.nc"
 
-            if not plev.exists():
+            if not plev.exists() or not sfc.exists():
                 continue
 
             for date in self._get_dates_from_file(plev):
-                self.times[date] = {"pl": plev}
+                self.times[date] = {"pl": plev, "sfc": sfc}
 
         self.times = dict(sorted(self.times.items()))
         if len(self.times) == 0:
@@ -230,6 +231,25 @@ class CAMS_PressureLevel_Base(CAMS_Base):
         Vars:
             - All variables in `required_vars`, passed when creating the object
         """
+
+        # Read surface pressure from sfc file (needed for the bottom half-level
+        # edge of the mass-conservative vertical remap)
+        with nc.Dataset(self.times[t]["sfc"], "r") as ds:
+            ds.set_auto_mask(False)
+            time = ds.variables["valid_time"]
+            time_dims = time.dimensions
+            cftime_seconds = cftime.date2num(
+                t, units=time.units, calendar=time.calendar
+            )
+            time_idx = np.where(time == cftime_seconds)
+            time_idx = {dim: idx for dim, idx in zip(time_dims, time_idx)}
+
+            sp_var = ds["sp"]
+            time_idx_4d = tuple(
+                time_idx[dim] if dim in time_idx else slice(None)
+                for dim in sp_var.dimensions
+            )
+            sp = np.squeeze(sp_var[*time_idx_4d])  # (lat, lon), in Pa
 
         with nc.Dataset(self.times[t]["pl"], "r") as ds:
             ds.set_auto_mask(False)
@@ -265,24 +285,64 @@ class CAMS_PressureLevel_Base(CAMS_Base):
 
             data["longitude"] = ((ds["longitude"][:] - 180) % 360) - 180
             data["latitude"] = ds["latitude"][:]
-            pressure_levels = ds["pressure_level"][:]
-            data["level"] = pressure_levels
+            pressure_levels = np.asarray(ds["pressure_level"][:])
 
-        # Broadcast pressure levels (already in hPa) to a 3D field
+        # Sort levels top-first (ascending pressure) so the edge construction
+        # below is independent of the file's native ordering, and apply the
+        # same permutation to all variables.
+        sort_idx = np.argsort(pressure_levels)
+        pressure_levels = pressure_levels[sort_idx]
+        for var in self.required_vars:
+            dims, arr = data[var]
+            data[var] = (dims, arr[sort_idx, :, :])
+
+        # Drop the topmost full level — pressure-level CAMS has no surface
+        # pressure analog at the top, and the highest level (typically <5 hPa)
+        # carries negligible aerosol/chemistry mass. Its pressure is reused
+        # as the top half-level edge of the kept column.
+        p_top_original = float(pressure_levels[0])
+        p_kept = pressure_levels[1:]
+        for var in self.required_vars:
+            dims, arr = data[var]
+            data[var] = (dims, arr[1:, :, :])
+        data["level"] = p_kept
+
         n_lat = len(data["latitude"])
         n_lon = len(data["longitude"])
+        sp_hpa = sp / 100.0  # Pa -> hPa, shape (lat, lon)
+
+        # Broadcast kept pressure levels (already in hPa) to a 3D full-level field
         pres_3d = np.broadcast_to(
-            pressure_levels.reshape(-1, 1, 1),
-            (len(pressure_levels), n_lat, n_lon),
+            p_kept.reshape(-1, 1, 1),
+            (len(p_kept), n_lat, n_lon),
         ).copy()
         data["pres"] = (("level", "latitude", "longitude"), pres_3d)
 
+        # Build half-level (edge) pressures. For N-1 kept centroids we emit
+        # N edges: top edge = dropped level's pressure; interior edges =
+        # midpoints between kept centroids; bottom edge = surface pressure.
+        n_edges = len(pressure_levels)  # = (N-1) + 1
+        pres_hf = np.empty((n_edges, n_lat, n_lon))
+        pres_hf[0, :, :] = p_top_original
+        if n_edges > 2:
+            mids = (p_kept[:-1] + p_kept[1:]) / 2.0
+            pres_hf[1:-1, :, :] = mids.reshape(-1, 1, 1)
+        pres_hf[-1, :, :] = sp_hpa
+        # High-terrain columns: surface can sit above the deepest kept centroid.
+        # Clamp so half-levels never exceed sp; the resulting zero-thickness
+        # bottom layers are tolerated by _remap_column's dp>0 guard.
+        pres_hf = np.minimum(pres_hf, sp_hpa[None, :, :])
+
+        data["pres_hf"] = (("level_hf", "latitude", "longitude"), pres_hf)
+        data["level_hf"] = np.arange(n_edges)
+
         ds = xr.Dataset(data)
-        ds = ds.set_coords(["longitude", "latitude", "level"])
+        ds = ds.set_coords(["longitude", "latitude", "level", "level_hf"])
 
         ds = ds.sortby("latitude")
         ds = ds.sortby("longitude")
         ds = ds.sortby("level", ascending=False)
+        ds = ds.sortby("level_hf", ascending=False)
 
         return ds
 
