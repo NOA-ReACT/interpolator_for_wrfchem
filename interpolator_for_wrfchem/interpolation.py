@@ -2,7 +2,7 @@ from typing import Literal
 
 import numpy as np
 import xarray as xr
-from scipy import interpolate
+from scipy import ndimage
 
 
 def interpolate_to_wrf(
@@ -108,6 +108,13 @@ def _interpolate_hoz(
 
     `level_dim` selects which level-like dimension of `var` to iterate over
     (defaults to "level"; use "level_hf" for half-level fields).
+
+    All levels are interpolated in a single vectorized cubic ``map_coordinates``
+    call. This relies on the source grid being *regularly spaced* (so a physical
+    coordinate maps to a fractional array index via a constant step), which is true
+    for CAMS (lat-lon) and wrfout (regular DX/DY in projection space). The source grid
+    is first subset to the WRF evaluation bounding box (plus a margin) so the cubic
+    prefilter runs over the small regional window instead of the whole globe.
     """
 
     gm_x = gm.attrs.get("hoz_coord_x", "longitude")
@@ -118,15 +125,58 @@ def _interpolate_hoz(
     assert (gm[gm_x].diff(gm_x) > 0).all(), f"{gm_x} values must be increasing"
     assert (gm[gm_y].diff(gm_y) > 0).all(), f"{gm_y} values must be increasing"
 
-    n_levels = gm.sizes[level_dim]
-    out = np.empty((n_levels, *wrf[wrf_x].shape))
-    for l in range(n_levels):
-        interp = interpolate.RectBivariateSpline(
-            gm[gm_y],
-            gm[gm_x],
-            gm[var].isel({level_dim: l}),
-        )
-        out[l, ...] = interp(wrf[wrf_y], wrf[wrf_x], grid=False)
+    x = np.asarray(gm[gm_x].values, dtype=float)
+    y = np.asarray(gm[gm_y].values, dtype=float)
+    dx = np.diff(x)
+    dy = np.diff(y)
+    assert np.allclose(dx, dx[0]), f"{gm_x} must be regularly spaced"
+    assert np.allclose(dy, dy[0]), f"{gm_y} must be regularly spaced"
+
+    xt = np.asarray(wrf[wrf_x].values, dtype=float).ravel()
+    yt = np.asarray(wrf[wrf_y].values, dtype=float).ravel()
+
+    # Subset the source grid to the WRF bounding box plus a margin. The cubic
+    # spline only needs >=2 cells, but its influence at the truncated edge decays
+    # geometrically (~0.27 per cell), so a generous margin makes the subset
+    # result match a full-grid interpolation to floating-point noise at no
+    # measurable cost (the subgrid stays tiny vs the globe). The global model
+    # covers the whole globe, so a regional WRF domain is always contained.
+    # NOTE: a dateline-crossing domain (already unsupported, as the source axes
+    # do not wrap) would yield a wide contiguous min->max slice.
+    margin = 16
+    ix0 = max(int(np.searchsorted(x, xt.min()) - margin), 0)
+    ix1 = min(int(np.searchsorted(x, xt.max()) + margin + 1), x.size)
+    iy0 = max(int(np.searchsorted(y, yt.min()) - margin), 0)
+    iy1 = min(int(np.searchsorted(y, yt.max()) + margin + 1), y.size)
+
+    x_sub = x[ix0:ix1]
+    y_sub = y[iy0:iy1]
+
+    # cube has axes (level, gm_y, gm_x); transpose so .values ordering is fixed
+    cube = (
+        gm[var]
+        .transpose(level_dim, gm_y, gm_x)
+        .values[:, iy0:iy1, ix0:ix1]
+        .astype(float)
+    )
+    n_levels = cube.shape[0]
+    n_pts = xt.size
+
+    # Fractional source indices of the WRF points within the subset grid.
+    fy = (yt - y_sub[0]) / (y_sub[1] - y_sub[0])
+    fx = (xt - x_sub[0]) / (x_sub[1] - x_sub[0])
+
+    # Sample every level at the same (fy, fx). Level coordinates are exact
+    # integers, so the cubic spline collapses to the per-level 2D interpolation
+    # along that axis (no inter-level blending).
+    coords = np.empty((3, n_levels, n_pts))
+    coords[0] = np.arange(n_levels)[:, None]
+    coords[1] = fy[None, :]
+    coords[2] = fx[None, :]
+
+    out = ndimage.map_coordinates(
+        cube, coords.reshape(3, -1), order=3, mode="nearest"
+    ).reshape(n_levels, *wrf[wrf_x].shape)
 
     return xr.DataArray(out, dims=(level_dim, "south_north", "west_east"))
 
