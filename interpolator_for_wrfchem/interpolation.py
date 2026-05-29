@@ -64,7 +64,6 @@ def interpolate_to_wrf(
                 "Mass-conservative vertical interpolation requires `pres_hf` "
                 "(half-level pressures) in both the global-model and WRF datasets"
             )
-        gm_pres = _interpolate_hoz(wrf, gm, "pres")
         gm_pres_hf = _interpolate_hoz(wrf, gm, "pres_hf", level_dim="level_hf")
 
     # Interpolate each variable
@@ -81,8 +80,7 @@ def interpolate_to_wrf(
             # Sort surface-first (ZNU ≈ 1.0 at index 0) to match the target WRF's
             # bottom_top ordering, then rename the level dim.
             da = (
-                hoz_var
-                .assign_coords(ZNU=("level", gm["ZNU"].values))
+                hoz_var.assign_coords(ZNU=("level", gm["ZNU"].values))
                 .sortby("ZNU", ascending=False)
                 .drop_vars("ZNU")
                 .rename({"level": vert_dim})
@@ -94,7 +92,6 @@ def interpolate_to_wrf(
             out[var] = _interpolate_ver(
                 wrf.pres,
                 wrf.pres_hf,
-                gm_pres,
                 gm_pres_hf,
                 hoz_var,
                 below_surface=below_surface,
@@ -137,7 +134,6 @@ def _interpolate_hoz(
 def _interpolate_ver(
     wrf_pres: xr.DataArray,
     wrf_pres_hf: xr.DataArray,
-    gm_pres: xr.DataArray,
     gm_pres_hf: xr.DataArray,
     var: xr.DataArray,
     below_surface: Literal["clamp", "extend"] = "clamp",
@@ -146,118 +142,134 @@ def _interpolate_ver(
     Vertically interpolate `var` from the global model to the WRF grid using a
     mass-conservative cumulative-integral remap.
 
-    Per column:
+    Per column the algorithm is:
       1. Build per-layer mass on the source as ``m = q · dp`` (the ``1/g`` factor
          is constant and cancels when we divide back out).
       2. Build the cumulative source curve ``M`` at the source half-levels.
       3. Linearly interpolate ``M`` onto the target half-levels in pressure,
-         with explicit out-of-range handling rather than ``interp1d`` fill
-         values.
+         with explicit out-of-range handling.
       4. Difference to get the per-target-layer mass and divide by the target
          layer thickness to recover the mixing ratio.
+
+    All columns are processed at once by :func:`_remap_columns`, which relies on
+    source and target half-level pressures being consistently ordered
+    (surface-first, monotonically non-increasing) across the whole grid.
 
     Args:
         wrf_pres: WRF full-level pressure, dims (bottom_top, south_north, west_east).
         wrf_pres_hf: WRF half-level pressure, dims (bottom_top_stag, south_north, west_east).
-        gm_pres: Global model full-level pressure on the WRF horizontal grid,
-            dims (level, south_north, west_east).
         gm_pres_hf: Global model half-level pressure on the WRF horizontal grid,
             dims (level_hf, south_north, west_east).
         var: Variable to interpolate, dims (level, south_north, west_east).
         below_surface: See ``interpolate_to_wrf``.
     """
 
-    out = xr.zeros_like(wrf_pres)
-    var_np = var.values
-    gm_pres_hf_np = gm_pres_hf.values
-    wrf_pres_hf_np = wrf_pres_hf.values
-
-    n_x = wrf_pres.sizes["west_east"]
-    n_y = wrf_pres.sizes["south_north"]
-    for x in range(n_x):
-        for y in range(n_y):
-            q_src = var_np[:, y, x]
-            p_hf_src = gm_pres_hf_np[:, y, x]
-            p_hf_tgt = wrf_pres_hf_np[:, y, x]
-
-            q_tgt = _remap_column(p_hf_src, q_src, p_hf_tgt, below_surface)
-            out[dict(west_east=x, south_north=y)] = np.clip(
-                q_tgt, a_min=0, a_max=None
-            )
-    return out
+    q_tgt = _remap_columns(
+        gm_pres_hf.values,
+        var.values,
+        wrf_pres_hf.values,
+        below_surface=below_surface,
+    )
+    return wrf_pres.copy(data=np.clip(q_tgt, a_min=0, a_max=None))
 
 
-def _remap_column(
+def _remap_columns(
     p_hf_src: np.ndarray,
     q_src: np.ndarray,
     p_hf_tgt: np.ndarray,
     below_surface: Literal["clamp", "extend"] = "clamp",
 ) -> np.ndarray:
     """
-    Mass-conservative cumulative-integral remap of a single column.
+    Mass-conservative cumulative-integral remap of every column at once.
 
-    Inputs may be in any monotonic ordering (top-first or surface-first); both
-    sides are independently sorted top-first internally and the result is
-    written back in the original target ordering.
+    All arrays carry the level-like axis first: ``(level, south_north,
+    west_east)``. Both source and target half-level pressures must be
+    monotonically non-increasing (surface-first) along axis 0, *consistently*
+    for every column — which lets the per-column ``argsort`` of the scalar
+    implementation collapse into a single global flip. This holds for CAMS
+    hybrid/pressure levels and WRF eta levels (see module callers); it is
+    asserted below so a violation fails loudly rather than silently corrupting
+    output.
 
     Args:
-        p_hf_src: Source half-level pressures, length n+1.
-        q_src: Source full-level mixing ratios, length n. Element ``k`` is the
-            value of the layer between ``p_hf_src[k]`` and ``p_hf_src[k+1]``
-            in the input's native ordering.
-        p_hf_tgt: Target half-level pressures, length m+1.
+        p_hf_src: Source half-level pressures, shape (n+1, ny, nx).
+        q_src: Source full-level mixing ratios, shape (n, ny, nx). Element ``k``
+            is the value of the layer between ``p_hf_src[k]`` and
+            ``p_hf_src[k+1]``.
+        p_hf_tgt: Target half-level pressures, shape (m+1, ny, nx).
         below_surface: ``"clamp"`` (strictly conservative) or ``"extend"``
             (linear extension of the cumulative curve at the slope of the
             deepest source layer).
 
     Returns:
-        Mixing ratios on the m target full levels, in the input's native
-        ordering. Values may be slightly negative from floating-point noise;
-        the caller is expected to clip.
+        Mixing ratios on the m target full levels, shape (m, ny, nx), in the
+        input's (surface-first) ordering. Values may be slightly negative from
+        floating-point noise; the caller is expected to clip.
     """
 
-    # Sort source half-levels top-first (ascending pressure). Each full-level
-    # value q_src[k] lives between half-levels k and k+1 in the input ordering;
-    # in the sorted order, the interval between sorted positions i and i+1
-    # came from original half-levels (src_order[i], src_order[i+1]) — the
-    # full-level index that interval represents is ``min`` of the two.
-    src_order = np.argsort(p_hf_src)
-    p_hf_src_sorted = p_hf_src[src_order]
-    full_src_idx = np.minimum(src_order[:-1], src_order[1:])
-    q_src_sorted = q_src[full_src_idx]
-
-    dp_src = np.diff(p_hf_src_sorted)
-    m_src = q_src_sorted * dp_src
-    M_src = np.concatenate(([0.0], np.cumsum(m_src)))
-    M_total = M_src[-1]
-
-    tgt_order = np.argsort(p_hf_tgt)
-    p_hf_tgt_sorted = p_hf_tgt[tgt_order]
-
-    # Linearly interpolate the cumulative-mass curve. Out-of-range above the
-    # source top is clamped to 0 (no mass above the model). Below the source
-    # surface, the default clamp gives M = M_total; the "extend" mode
-    # overrides those entries with a linear extension at the deepest-layer
-    # slope (constant near-surface mixing ratio).
-    M_tgt = np.interp(
-        p_hf_tgt_sorted, p_hf_src_sorted, M_src, left=0.0, right=M_total
-    )
-    if below_surface == "extend" and dp_src.size > 0 and dp_src[-1] > 0:
-        slope = m_src[-1] / dp_src[-1]
-        mask = p_hf_tgt_sorted > p_hf_src_sorted[-1]
-        if mask.any():
-            M_tgt[mask] = M_total + slope * (
-                p_hf_tgt_sorted[mask] - p_hf_src_sorted[-1]
-            )
-
-    m_tgt_sorted = np.diff(M_tgt)
-    dp_tgt_sorted = np.diff(p_hf_tgt_sorted)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        q_tgt_sorted = np.where(
-            dp_tgt_sorted > 0, m_tgt_sorted / dp_tgt_sorted, 0.0
+    if not (np.diff(p_hf_src, axis=0) <= 0).all():
+        raise RuntimeError(
+            "Source half-level pressures must be monotonically non-increasing "
+            "(surface-first) along the level axis for every column"
+        )
+    if not (np.diff(p_hf_tgt, axis=0) <= 0).all():
+        raise RuntimeError(
+            "Target half-level pressures must be monotonically non-increasing "
+            "(surface-first) along the level axis for every column"
         )
 
-    full_tgt_idx = np.minimum(tgt_order[:-1], tgt_order[1:])
-    q_tgt = np.empty_like(q_tgt_sorted)
-    q_tgt[full_tgt_idx] = q_tgt_sorted
-    return q_tgt
+    # Flip to top-first (ascending pressure). After the flip each full-level
+    # value q[k] lies between half-levels p_src[k] and p_src[k+1] in every column.
+    p_src = p_hf_src[::-1]  # (L+1, ny, nx)
+    q = q_src[::-1]  # (L, ny, nx)
+    p_tgt = p_hf_tgt[::-1]  # (M+1, ny, nx)
+    L = q.shape[0]
+
+    # Cumulative source mass curve at the source half-levels.
+    dp_src = np.diff(p_src, axis=0)
+    m_src = q * dp_src
+    M_src = np.concatenate(
+        [np.zeros((1, *m_src.shape[1:])), np.cumsum(m_src, axis=0)], axis=0
+    )  # (L+1, ny, nx)
+    M_total = M_src[-1]  # (ny, nx)
+
+    # Batched linear interpolation of M_src(p_src) at the target half-levels.
+    # The bracket index is the number of source half-levels strictly below each
+    # target value; the loop is over the small (vertical) source axis only.
+    idx = np.zeros(p_tgt.shape, dtype=np.intp)
+    for k in range(p_src.shape[0]):
+        idx += p_src[k][None] < p_tgt
+    left = np.clip(idx - 1, 0, L - 1)  # segment left index, (M+1, ny, nx)
+
+    p0 = np.take_along_axis(p_src, left, axis=0)
+    p1 = np.take_along_axis(p_src, left + 1, axis=0)
+    M0 = np.take_along_axis(M_src, left, axis=0)
+    M1 = np.take_along_axis(M_src, left + 1, axis=0)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        frac = (p_tgt - p0) / (p1 - p0)
+    frac = np.where(p1 > p0, frac, 0.0)
+    M_tgt = M0 + frac * (M1 - M0)
+
+    # Out-of-range handling, matching np.interp(left=0, right=M_total): above the
+    # source top there is no mass; below the source surface the clamp holds M at
+    # the column total.
+    above_top = p_tgt < p_src[0][None]
+    below_surf = p_tgt > p_src[-1][None]
+    M_tgt = np.where(above_top, 0.0, M_tgt)
+    M_tgt = np.where(below_surf, M_total[None], M_tgt)
+
+    if below_surface == "extend":
+        with np.errstate(divide="ignore", invalid="ignore"):
+            slope = np.where(dp_src[-1] > 0, m_src[-1] / dp_src[-1], 0.0)  # (ny, nx)
+        ext = M_total[None] + slope[None] * (p_tgt - p_src[-1][None])
+        M_tgt = np.where(below_surf, ext, M_tgt)
+
+    # Difference back to per-target-layer mass and recover the mixing ratio.
+    m_tgt = np.diff(M_tgt, axis=0)
+    dp_tgt = np.diff(p_tgt, axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        q_tgt = np.where(dp_tgt > 0, m_tgt / dp_tgt, 0.0)
+
+    # Flip back to surface-first to match the WRF ordering.
+    return q_tgt[::-1]
