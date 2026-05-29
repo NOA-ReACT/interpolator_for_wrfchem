@@ -10,13 +10,13 @@ Interpolator for WRF-CHEM is a preprocessing application that interpolates globa
 
 ```bash
 # Install dependencies
-poetry install
+uv sync
 
 # Run the CLI
-poetry run interpolator-for-wrfchem <global_model> <input_files> <mapping> <wrfinput>
+uv run interpolator-for-wrfchem <global_model> <input_files> <mapping> <wrfinput>
 
 # Example
-poetry run interpolator-for-wrfchem cams_eac4 /path/to/cams species_map.toml wrfinput_d01 --wrfbdy=wrfbdy_d01
+uv run interpolator-for-wrfchem cams_eac4 /path/to/cams species_map.toml wrfinput_d01 --wrfbdy=wrfbdy_d01
 ```
 
 No formal test suite exists. Testing is done via exploration scripts in `exploration/`.

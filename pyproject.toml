@@ -1,31 +1,34 @@
-[tool.poetry]
+[project]
 name = "interpolator-for-wrfchem"
 version = "1.8.1"
 description = "Interpolates global chemistry fields for use with WRF-CHEM"
-authors = ["Thanasis Georgiou <ageorgiou@noa.gr>"]
+authors = [
+    {name = "Thanasis Georgiou", email = "ageorgiou@noa.gr"}
+]
 readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.4.2",
+    "netcdf4>=1.7.2",
+    "scipy>=1.17.1",
+    "tomli>=2.0.1",
+    "xarray>=2025.4.0",
+    "cftime>=1.6.3",
+    "pandas>=2.2.3",
+    "click>=8.1.7",
+    "pyproj>=3.6",
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 interpolator-for-wrfchem = "interpolator_for_wrfchem:main"
 
-[tool.poetry.dependencies]
-python = "^3.11"
-numpy = "^2.4.2"
-netcdf4 = "^1.7.2"
-scipy = "^1.17.1"
-tomli = "^2.0.1"
-xarray = "^2025.4.0"
-cftime = "^1.6.3"
-pandas = "^2.2.3"
-click = "^8.1.7"
-pyproj = "^3.6"
-
-
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.27.1"
-matplotlib = "^3.10.3"
-cartopy = "^0.24.1"
+[dependency-groups]
+dev = [
+    "ipykernel>=6.27.1",
+    "matplotlib>=3.10.3",
+    "cartopy>=0.24.1",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
