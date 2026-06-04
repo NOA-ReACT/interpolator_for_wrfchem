@@ -64,7 +64,15 @@ def interpolate_to_wrf(
                 "Mass-conservative vertical interpolation requires `pres_hf` "
                 "(half-level pressures) in both the global-model and WRF datasets"
             )
-        gm_pres_hf = _interpolate_hoz(wrf, gm, "pres_hf", level_dim="level_hf")
+        # Interpolate the half-level pressures *linearly*. Bilinear interpolation
+        # is a convex combination with the same weights at every level, so it
+        # preserves the per-column vertical monotonicity that `_remap_columns`
+        # requires. Cubic (order=3) has negative lobes that overshoot across
+        # terrain-driven surface-pressure gradients and can flip the sign of a
+        # half-level step, tripping the monotonicity assertion.
+        gm_pres_hf = _interpolate_hoz(
+            wrf, gm, "pres_hf", level_dim="level_hf", order=1
+        )
 
     # Interpolate each variable
     coord_vars = {gm_x, gm_y, "level", "level_hf", "pres", "pres_hf", "ZNU", "ZNW"}
@@ -101,7 +109,11 @@ def interpolate_to_wrf(
 
 
 def _interpolate_hoz(
-    wrf: xr.Dataset, gm: xr.Dataset, var: str, level_dim: str = "level"
+    wrf: xr.Dataset,
+    gm: xr.Dataset,
+    var: str,
+    level_dim: str = "level",
+    order: int = 3,
 ) -> xr.DataArray:
     """
     Horizontally interpolate variable `var` from global model `gm` to WRF `wrf`.
@@ -109,11 +121,16 @@ def _interpolate_hoz(
     `level_dim` selects which level-like dimension of `var` to iterate over
     (defaults to "level"; use "level_hf" for half-level fields).
 
-    All levels are interpolated in a single vectorized cubic ``map_coordinates``
+    `order` is the spline order passed to ``map_coordinates`` (default cubic,
+    3). Use ``order=1`` (bilinear) for fields whose vertical monotonicity must
+    be preserved — bilinear is a convex combination with the same weights at
+    every level, whereas cubic can overshoot and flip the sign of a level step.
+
+    All levels are interpolated in a single vectorized ``map_coordinates``
     call. This relies on the source grid being *regularly spaced* (so a physical
     coordinate maps to a fractional array index via a constant step), which is true
     for CAMS (lat-lon) and wrfout (regular DX/DY in projection space). The source grid
-    is first subset to the WRF evaluation bounding box (plus a margin) so the cubic
+    is first subset to the WRF evaluation bounding box (plus a margin) so the spline
     prefilter runs over the small regional window instead of the whole globe.
     """
 
@@ -167,15 +184,15 @@ def _interpolate_hoz(
     fx = (xt - x_sub[0]) / (x_sub[1] - x_sub[0])
 
     # Sample every level at the same (fy, fx). Level coordinates are exact
-    # integers, so the cubic spline collapses to the per-level 2D interpolation
-    # along that axis (no inter-level blending).
+    # integers, so the spline collapses to the per-level 2D interpolation
+    # along that axis (no inter-level blending), for any `order`.
     coords = np.empty((3, n_levels, n_pts))
     coords[0] = np.arange(n_levels)[:, None]
     coords[1] = fy[None, :]
     coords[2] = fx[None, :]
 
     out = ndimage.map_coordinates(
-        cube, coords.reshape(3, -1), order=3, mode="nearest"
+        cube, coords.reshape(3, -1), order=order, mode="nearest"
     ).reshape(n_levels, *wrf[wrf_x].shape)
 
     return xr.DataArray(out, dims=(level_dim, "south_north", "west_east"))
