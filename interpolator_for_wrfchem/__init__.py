@@ -147,12 +147,9 @@ def do_boundary_conditions(
 
     interp_last_t = {}
     for t_idx, t in enumerate(wrfbdy.times):
-        # Fetch global model data for this specific time
-        if t not in global_model.available_times:
-            raise RuntimeError(
-                f"Could not find global model file for boundary time {t}"
-            )
-        global_model_ds = global_model.get_dataset(t)
+        # Fetch global model data for this specific time (temporally interpolated
+        # if t falls between two available global-model times)
+        global_model_ds = global_model.get_dataset_interpolated(t)
         if skip_vertical:
             global_model_ds.attrs["skip_vertical"] = True
 
@@ -312,13 +309,9 @@ def main(
             skip_vertical = True
             print("Source and target WRF vertical levels match — skipping vertical interpolation")
 
-    # Interpolate initial conditions
-    if wrf.time not in global_model.times:
-        raise RuntimeError(
-            f"Could not find global model file for wrfinput time {wrf.time}"
-        )
-
-    global_model_ds = global_model.get_dataset(wrf.time)
+    # Interpolate initial conditions (temporally interpolated if wrf.time falls
+    # between two available global-model times)
+    global_model_ds = global_model.get_dataset_interpolated(wrf.time)
     if skip_vertical:
         global_model_ds.attrs["skip_vertical"] = True
 
