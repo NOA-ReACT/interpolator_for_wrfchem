@@ -13,6 +13,19 @@ from interpolator_for_wrfchem.species_map import SpeciesMap, convert_si
 from interpolator_for_wrfchem.wrf import WRFBoundary, WRFInput
 
 
+def _parse_hoz_shift(ctx, param, value: Optional[str]) -> tuple[int, int]:
+    """Parse the --hoz-shift option, 'LON,LAT' cell counts, into a tuple."""
+    if value is None:
+        return (0, 0)
+    try:
+        shift_x, shift_y = (int(part) for part in value.split(","))
+    except ValueError:
+        raise click.BadParameter(
+            f"expected two comma-separated integers 'LON,LAT', got {value!r}"
+        )
+    return (shift_x, shift_y)
+
+
 def backup_files(wrfinput: Path, wrfbdy: Optional[Path]):
     """
     Make a copy of wrfinput and wrfbdy in the same directory, adding a .orig suffix.
@@ -133,6 +146,7 @@ def do_boundary_conditions(
     mapping: SpeciesMap,
     skip_vertical: bool = False,
     below_surface: str = "clamp",
+    hoz_shift: tuple[int, int] = (0, 0),
 ):
     """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
 
@@ -141,9 +155,12 @@ def do_boundary_conditions(
         wrf_ds: Dataset containing the WRF-CHEM domain's basic coordinates and pressure field
         global_model: GlobalModel object to fetch global model fields for each time
         mapping: SpeciesMap object to map from global to WRF-CHEM species
+        hoz_shift: Horizontal shift (x, y) applied by `global_model`, recorded
+            in the output file's root attributes for accounting
     """
 
     wrfbdy = WRFBoundary(wrfbdy_path)
+    wrfbdy.nc_file.setncattr("interpolator_hoz_shift", f"{hoz_shift[0]},{hoz_shift[1]}")
 
     interp_last_t = {}
     for t_idx, t in enumerate(wrfbdy.times):
@@ -249,6 +266,17 @@ def do_boundary_conditions(
         "holds the near-surface mixing ratio constant down to the WRF surface."
     ),
 )
+@click.option(
+    "--hoz-shift",
+    default=None,
+    callback=_parse_hoz_shift,
+    help=(
+        "Perturbation: shift the global model fields by whole grid cells "
+        "before interpolation, as 'LON,LAT' (e.g. 2,-3). Positive values move "
+        "the field east/north. Applied as a periodic roll of the data; the "
+        "coordinate axes are unchanged."
+    ),
+)
 def main(
     global_model: str,
     input_files: Path,
@@ -259,6 +287,7 @@ def main(
     copy_icbc: bool,
     diagnostics: bool,
     below_surface_fill: str,
+    hoz_shift: tuple[int, int],
 ):
     """
     Interpolate global model fields to WRF-Chem input files.
@@ -276,6 +305,7 @@ def main(
         --copy-icbc: Copy wrfinput/wrfbdy to wrfinput.orig/wrfbdy.orig before modifying, will not overwrite any existing .orig files.
         --diagnostics: Write out diagnostic file for debugging. It will be written to the current directory with the name `diag_cams_interp.nc`. The diagnositc file contains the raw fields interpolated to the WRF grid, before the
         species mapping.
+        --hoz-shift: Shift the global model fields by whole grid cells ('LON,LAT') before interpolation, as a perturbation. The applied shift is recorded in the `interpolator_hoz_shift` root attribute of the output files.
     """
 
     # Backup wrfinput/wrfbdy if requested
@@ -293,6 +323,9 @@ def main(
     global_model = GLOBAL_MODELS[global_model](
         Path(input_files), mapping.required_source_species
     )
+    global_model.hoz_shift = hoz_shift
+    if hoz_shift != (0, 0):
+        print(f"Applying horizontal shift perturbation: {hoz_shift} cells (x, y)")
     print(global_model)
 
     # If the global model needs coordinate transformation (e.g., wrfout projected grid)
@@ -326,6 +359,11 @@ def main(
             below_surface=below_surface_fill,
         )
 
+        # Record the applied perturbation for accounting
+        wrf.nc_file.setncattr(
+            "interpolator_hoz_shift", f"{hoz_shift[0]},{hoz_shift[1]}"
+        )
+
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
@@ -336,6 +374,7 @@ def main(
             mapping,
             skip_vertical=skip_vertical,
             below_surface=below_surface_fill,
+            hoz_shift=hoz_shift,
         )
 
     wrf.close()

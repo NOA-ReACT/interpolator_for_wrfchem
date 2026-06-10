@@ -54,6 +54,7 @@ There are some optional flags:
 - `--copy-icbc`: Make a backup of the `wrfinput` and `wrfbdy` files before updating them.
 - `--no-ic`: Do not update the `wrfinput`. You must nonetheless provide the path to the `wrfinput` file as it is required to read some information.
 - `--diagnostics`: Store some diagnostic information in the `diag_cams_interp.nc` file.
+- `--hoz-shift=LON,LAT`: Shift the global model fields by whole grid cells before interpolation (e.g. `--hoz-shift=2,-3` shifts by +2 cells in longitude and -3 in latitude), as a way to perturb the initial/boundary fields. Positive values move the field east/north. The shift is applied as a periodic roll of the data (the coordinate axes are unchanged) and is recorded in the `interpolator_hoz_shift` root attribute of the output files.
 
 When you use nested domains, you can run the application multiple times, each time pointing to a different `wrfinput` file. You can omit the `wrfbdy` file when running the application for the nested domains' `wrfinput` files.
 If you need to update `wrfbdy` files for the future without touching `wrfinput` (e.g. for a cycling run), point to a correct `wrfinput` file (correct means it's the same model grid and configuration) and use the `--no-ic` flag.

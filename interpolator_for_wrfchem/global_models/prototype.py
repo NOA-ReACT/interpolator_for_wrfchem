@@ -14,6 +14,13 @@ class GlobalModel(ABC):
     # hot and avoids reloading it for every dense WRF boundary step.
     _DS_CACHE_SIZE = 2
 
+    # Perturbation: shift the fields by whole grid cells in (x, y), applied as
+    # a periodic roll of the data while the coordinate axes stay fixed.
+    # Positive values move the field toward increasing coordinate (east/north
+    # on a lat-lon grid). Class-level default since subclass __init__ methods
+    # don't chain to a base; set externally (e.g. from the CLI).
+    hoz_shift: tuple[int, int] = (0, 0)
+
     def get_dataset(self, time: dt.datetime) -> xr.Dataset:
         """Return the required variables in a xarray dataset for the given time."""
         raise NotImplementedError("Subclasses must implement this method")
@@ -32,6 +39,18 @@ class GlobalModel(ABC):
         while len(cache) > self._DS_CACHE_SIZE:
             cache.popitem(last=False)
         return ds
+
+    def _apply_hoz_shift(self, ds: xr.Dataset) -> xr.Dataset:
+        """Roll all data variables by ``hoz_shift`` cells along the horizontal
+        dimensions, leaving the coordinate axes untouched so they stay
+        monotonic for the horizontal interpolation. Rolling by +n along an
+        ascending axis moves the field toward increasing coordinate."""
+        shift_x, shift_y = self.hoz_shift
+        if shift_x == 0 and shift_y == 0:
+            return ds
+        dim_x = ds.attrs.get("hoz_coord_x", "longitude")
+        dim_y = ds.attrs.get("hoz_coord_y", "latitude")
+        return ds.roll({dim_x: shift_x, dim_y: shift_y}, roll_coords=False)
 
     @property
     def available_times(self) -> list[dt.datetime]:
@@ -55,7 +74,7 @@ class GlobalModel(ABC):
 
         times = sorted(self.available_times)
         if time in times:
-            return self._get_dataset_cached(time)
+            return self._apply_hoz_shift(self._get_dataset_cached(time))
 
         if time < times[0] or time > times[-1]:
             raise RuntimeError(
@@ -76,4 +95,4 @@ class GlobalModel(ABC):
         # keep_attrs preserves dataset/variable attrs from the left operand
         # (e.g. wrfout's hoz_coord_x/hoz_coord_y set in get_dataset).
         with xr.set_options(keep_attrs=True):
-            return ds0 * (1.0 - w) + ds1 * w
+            return self._apply_hoz_shift(ds0 * (1.0 - w) + ds1 * w)
