@@ -26,6 +26,30 @@ def _parse_hoz_shift(ctx, param, value: Optional[str]) -> tuple[int, int]:
     return (shift_x, shift_y)
 
 
+def _parse_multiplier(ctx, param, value: tuple[str, ...]) -> dict[str, float]:
+    """Parse the --multiplier options, 'VAR=COEFF', into a {var: coeff} dict."""
+    scale_factors: dict[str, float] = {}
+    for entry in value:
+        if "=" not in entry:
+            raise click.BadParameter(
+                f"expected 'VAR=COEFF', got {entry!r}"
+            )
+        var, _, coeff = entry.partition("=")
+        var = var.strip()
+        try:
+            coeff_value = float(coeff)
+        except ValueError:
+            raise click.BadParameter(
+                f"coefficient must be a number, got {coeff!r} in {entry!r}"
+            )
+        if var in scale_factors:
+            raise click.BadParameter(
+                f"variable {var!r} given more than once"
+            )
+        scale_factors[var] = coeff_value
+    return scale_factors
+
+
 def backup_files(wrfinput: Path, wrfbdy: Optional[Path]):
     """
     Make a copy of wrfinput and wrfbdy in the same directory, adding a .orig suffix.
@@ -102,6 +126,7 @@ def do_initial_conditions(
     mappings: SpeciesMap,
     write_diagnostics=False,
     below_surface: str = "clamp",
+    scale_factors: Optional[dict[str, float]] = None,
 ):
     """Interpolate global model fields to WRF-Chem domain for initial conditions.
 
@@ -113,7 +138,15 @@ def do_initial_conditions(
         write_diagnostics: Whether to write out a diagnostic file for debugging purposes.
         below_surface: Policy for WRF half-levels below the global-model surface;
             see ``interpolate_to_wrf``.
+        scale_factors: Optional {variable: coefficient} mapping. Matching output
+            variables are multiplied by their coefficient before being written and
+            the coefficient is recorded in the `interpolator_scale_factor` attribute.
+
+    Returns:
+        The set of `scale_factors` keys that matched a written variable.
     """
+    scale_factors = scale_factors or {}
+    matched: set[str] = set()
 
     interp_ds = interpolate_to_wrf(
         wrf_ds, global_model_ds, below_surface=below_surface
@@ -132,11 +165,21 @@ def do_initial_conditions(
     for name, arr in wrf_vars.items():
         alias = mappings.aliases_target.get(name, name)
 
+        coeff = scale_factors.get(name)
+        if coeff is not None:
+            arr = arr * coeff
+            matched.add(name)
+
         if alias not in wrf.nc_file.variables:
             wrf.nc_file.createVariable(
                 alias, "f4", ("Time", "bottom_top", "south_north", "west_east")
             )
         wrf.nc_file.variables[alias][0, :, :, :] = arr
+
+        if coeff is not None:
+            wrf.nc_file.variables[alias].setncattr("interpolator_scale_factor", coeff)
+
+    return matched
 
 
 def do_boundary_conditions(
@@ -147,6 +190,7 @@ def do_boundary_conditions(
     skip_vertical: bool = False,
     below_surface: str = "clamp",
     hoz_shift: tuple[int, int] = (0, 0),
+    scale_factors: Optional[dict[str, float]] = None,
 ):
     """Interpolate global model fields to the boundary of the WRF-Chem file and compute tendencies.
 
@@ -157,7 +201,16 @@ def do_boundary_conditions(
         mapping: SpeciesMap object to map from global to WRF-CHEM species
         hoz_shift: Horizontal shift (x, y) applied by `global_model`, recorded
             in the output file's root attributes for accounting
+        scale_factors: Optional {variable: coefficient} mapping. Matching boundary
+            variables are multiplied by their coefficient before being written
+            (tendencies follow implicitly) and the coefficient is recorded in the
+            `interpolator_scale_factor` attribute.
+
+    Returns:
+        The set of `scale_factors` keys that matched a written variable.
     """
+    scale_factors = scale_factors or {}
+    matched: set[str] = set()
 
     wrfbdy = WRFBoundary(wrfbdy_path)
     wrfbdy.nc_file.setncattr("interpolator_hoz_shift", f"{hoz_shift[0]},{hoz_shift[1]}")
@@ -193,6 +246,11 @@ def do_boundary_conditions(
             for name, arr in wrf_vars.items():
                 alias = mapping.aliases_target.get(name, name) + f"_{bdy}"
 
+                coeff = scale_factors.get(name)
+                if coeff is not None:
+                    arr = arr * coeff
+                    matched.add(name)
+
                 if t == wrfbdy.times[-1]:
                     interp_last_t[alias] = arr.to_numpy()
                     continue
@@ -200,6 +258,11 @@ def do_boundary_conditions(
                 if alias not in wrfbdy.nc_file.variables:
                     wrfbdy.nc_file.createVariable(alias, "f4", ("Time", *arr.dims))
                 wrfbdy.nc_file.variables[alias][t_idx, ...] = arr
+
+                if coeff is not None:
+                    wrfbdy.nc_file.variables[alias].setncattr(
+                        "interpolator_scale_factor", coeff
+                    )
 
     # Compute tendencies
     # For each boundary, store the difference between the current and previous value
@@ -232,6 +295,8 @@ def do_boundary_conditions(
                 wrfbdy.nc_file.variables[bdy_t_var][t_idx, ...] = (
                     next_var - curr_var
                 ) / dt
+
+    return matched
 
 
 @click.command(name="interpolator-for-wrf")
@@ -277,6 +342,17 @@ def do_boundary_conditions(
         "coordinate axes are unchanged."
     ),
 )
+@click.option(
+    "--multiplier",
+    multiple=True,
+    callback=_parse_multiplier,
+    help=(
+        "Scale an output variable by a constant before writing it, as "
+        "'VAR=COEFF' (e.g. DUST_1=0.98). May be given multiple times for "
+        "different variables. The coefficient is recorded in the variable's "
+        "'interpolator_scale_factor' netCDF attribute."
+    ),
+)
 def main(
     global_model: str,
     input_files: Path,
@@ -288,6 +364,7 @@ def main(
     diagnostics: bool,
     below_surface_fill: str,
     hoz_shift: tuple[int, int],
+    multiplier: dict[str, float],
 ):
     """
     Interpolate global model fields to WRF-Chem input files.
@@ -306,7 +383,11 @@ def main(
         --diagnostics: Write out diagnostic file for debugging. It will be written to the current directory with the name `diag_cams_interp.nc`. The diagnositc file contains the raw fields interpolated to the WRF grid, before the
         species mapping.
         --hoz-shift: Shift the global model fields by whole grid cells ('LON,LAT') before interpolation, as a perturbation. The applied shift is recorded in the `interpolator_hoz_shift` root attribute of the output files.
+        --multiplier: Scale an output variable by a constant before writing, as 'VAR=COEFF' (e.g. DUST_1=0.98). May be repeated for different variables. The coefficient is recorded in the variable's `interpolator_scale_factor` attribute.
     """
+
+    scale_factors = multiplier
+    matched_scale_factors: set[str] = set()
 
     # Backup wrfinput/wrfbdy if requested
     if copy_icbc:
@@ -350,13 +431,14 @@ def main(
 
     # Initial conditions
     if not no_ic:
-        do_initial_conditions(
+        matched_scale_factors |= do_initial_conditions(
             wrf,
             wrf_ds,
             global_model_ds,
             mapping,
             diagnostics,
             below_surface=below_surface_fill,
+            scale_factors=scale_factors,
         )
 
         # Record the applied perturbation for accounting
@@ -367,7 +449,7 @@ def main(
     # Compute boundary
     if wrfbdy:
         print(f"Doing boundary conditions ({wrfbdy})")
-        do_boundary_conditions(
+        matched_scale_factors |= do_boundary_conditions(
             wrfbdy,
             wrf_ds,
             global_model,
@@ -375,6 +457,15 @@ def main(
             skip_vertical=skip_vertical,
             below_surface=below_surface_fill,
             hoz_shift=hoz_shift,
+            scale_factors=scale_factors,
+        )
+
+    # Warn about any --multiplier variables that never matched a written field
+    unmatched = set(scale_factors) - matched_scale_factors
+    if unmatched:
+        print(
+            "Warning: these --multiplier variables did not match any written "
+            f"variable: {', '.join(sorted(unmatched))}"
         )
 
     wrf.close()
