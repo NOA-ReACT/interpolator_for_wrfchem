@@ -46,6 +46,7 @@ No formal test suite exists. Testing is done via exploration scripts in `explora
 ### Species Map Format
 
 TOML files in `species_maps/` define mappings. Key sections:
+
 - `[units]` - source/target units (kg, g, mg, ug)
 - `[aliases_source]`/`[aliases_target]` - optional name remapping
 - `[species_map]` - linear combination coefficients: `TARGET = { SRC1 = 1.0, SRC2 = 0.5 }`
@@ -58,3 +59,4 @@ See `species_maps/species_maps.md` for full specification.
 - Global model fields are on regular lat-lon grid
 - WRF files use standard field names and dimensions: (Time, bottom_top, south_north, west_east)
 - Global model data organized as `YYYY-MM-DD/data_sfc.nc`, `data_mlev.nc` subdirectories
+- The vertical remap is mass-conservative between interface pressures. WRF's are rebuilt as `C3F·(MU+MUB) + C4F + P_TOP` (hybrid coordinate). For the boundaries, MU is taken from the wrfbdy's own `MU_B*` at each boundary time (`WRFBoundary.boundary_mu`), so one wrfbdy can span many days; the wrfinput only provides the grid and base state.

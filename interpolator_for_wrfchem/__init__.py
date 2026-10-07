@@ -223,12 +223,14 @@ def do_boundary_conditions(
         if skip_vertical:
             global_model_ds.attrs["skip_vertical"] = True
 
-        wrf_pres = wrf_ds["pres"]
-
         for bdy in ["BXS", "BXE", "BYS", "BYE"]:
-            # Get WRF profile and replace pressure from met_em
             wrf_bdy = utils.get_boundary_profile(wrf_ds, bdy)
-            wrf_bdy["pres"] = utils.get_boundary_profile(wrf_pres, bdy)
+            if not skip_vertical:
+                # The vertical remap needs the interface pressure at time t, not at the
+                # wrfinput's time. Rebuild it from the boundary's own column mass.
+                wrf_bdy["pres_hf"] = utils.boundary_pressure_hf(
+                    wrf_bdy, wrfbdy.boundary_mu(t_idx, bdy)
+                )
 
             # Interpolate to CAMS
             cams_bdy = interpolate_to_wrf(

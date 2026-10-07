@@ -1,6 +1,9 @@
 from typing import Literal
 
+import numpy as np
 import xarray as xr
+
+from interpolator_for_wrfchem.wrf import hybrid_pressure
 
 
 def get_boundary_profile(
@@ -35,3 +38,25 @@ def get_boundary_profile(
         return var.isel(south_north=slice(-1, None))
     else:
         raise ValueError(f"Unknown boundary {boundary}")
+
+
+def boundary_pressure_hf(wrf_bdy: xr.Dataset, mu: np.ndarray) -> xr.DataArray:
+    """
+    Interface pressure (`pres_hf`, hPa) of a boundary profile for a given perturbation
+    dry column mass, e.g. the boundary's MU at some time from the wrfbdy file.
+
+    Args:
+        wrf_bdy: Boundary profile from `get_boundary_profile`, with MUB, C3F, C4F and the
+                 P_TOP attribute (see `WRFInput.get_dataset`)
+        mu: MU along the boundary, one value per point of the profile
+    """
+
+    mub = wrf_bdy["MUB"]
+    mu_total = mub.to_numpy() + np.asarray(mu).reshape(mub.shape)
+    pres_hf = hybrid_pressure(
+        wrf_bdy["C3F"].to_numpy(),
+        wrf_bdy["C4F"].to_numpy(),
+        mu_total,
+        wrf_bdy.attrs["P_TOP"],
+    )
+    return wrf_bdy["pres_hf"].copy(data=pres_hf)

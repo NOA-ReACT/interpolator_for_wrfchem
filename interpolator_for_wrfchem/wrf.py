@@ -6,6 +6,21 @@ import numpy as np
 import xarray as xr
 
 
+def hybrid_pressure(c3f, c4f, mu_total, p_top: float) -> np.ndarray:
+    """
+    WRF's dry hydrostatic pressure on the interfaces (half levels), in hPa.
+
+    Args:
+        c3f, c4f: Hybrid coordinate coefficients on the interfaces, shape (bottom_top_stag,)
+        mu_total: Total dry column mass (MU + MUB) in Pa, any horizontal shape
+        p_top: Model top pressure in Pa
+    """
+
+    c3f = np.asarray(c3f)[(...,) + (np.newaxis,) * np.ndim(mu_total)]
+    c4f = np.asarray(c4f)[(...,) + (np.newaxis,) * np.ndim(mu_total)]
+    return (c3f * np.asarray(mu_total)[np.newaxis] + c4f + p_top) * 0.01
+
+
 class WRFInput:
     path: Path
     nc_file: nc.Dataset
@@ -37,8 +52,13 @@ class WRFInput:
 
         Both full-level (mass-level) and half-level (interface) pressures are
         provided. The latter is reconstructed from the WRF dry-mass coordinate:
-            p_hf[k] = ZNW[k] · (MU + MUB) + P_TOP
-        and is needed by the mass-conservative vertical interpolation.
+            p_hf[k] = C3F[k] · (MU + MUB) + C4F[k] + P_TOP
+        and is needed by the mass-conservative vertical interpolation. C3F/C4F are the
+        hybrid vertical coordinate coefficients; with the terrain-following coordinate
+        (hybrid_opt = 0) they are ZNW and 0.
+
+        The base state column mass (MUB) and the coefficients are included too, so the
+        pressure can be recomputed at other times (see `boundary_pressure`).
         """
 
         xlong = self.nc_file.variables["XLONG"][0, :, :]
@@ -54,8 +74,13 @@ class WRFInput:
         mu = self.nc_file.variables["MU"][0, :, :]
         mub = self.nc_file.variables["MUB"][0, :, :]
         p_top = float(self.nc_file.variables["P_TOP"][0])
-        mu_total = (mu + mub)[np.newaxis, :, :]
-        pres_hf = (znw[:, np.newaxis, np.newaxis] * mu_total + p_top) * 0.01
+        if "C3F" in self.nc_file.variables:
+            c3f = self.nc_file.variables["C3F"][0, :]
+            c4f = self.nc_file.variables["C4F"][0, :]
+        else:
+            # WRF before v3.9, terrain-following coordinate only
+            c3f, c4f = znw, np.zeros_like(znw)
+        pres_hf = hybrid_pressure(c3f, c4f, mu + mub, p_top)
 
         return xr.Dataset(
             {
@@ -64,12 +89,15 @@ class WRFInput:
                     ("bottom_top_stag", "south_north", "west_east"),
                     pres_hf,
                 ),
+                "MUB": (("south_north", "west_east"), mub),
             },
             coords={
                 "XLONG": (("south_north", "west_east"), xlong),
                 "XLAT": (("south_north", "west_east"), xlat),
                 "ZNU": (("bottom_top",), self.nc_file.variables["ZNU"][0, :]),
                 "ZNW": (("bottom_top_stag",), znw),
+                "C3F": (("bottom_top_stag",), c3f),
+                "C4F": (("bottom_top_stag",), c4f),
                 "level": (("bottom_top",), level),
                 "level_hf": (("bottom_top_stag",), level_hf),
             },
@@ -121,6 +149,27 @@ class WRFBoundary:
             for t in times
         ]
         return times
+
+    def boundary_mu(self, t_idx: int, bdy: str) -> np.ndarray:
+        """
+        Perturbation dry column mass (MU) on the outermost row of boundary `bdy` (one of
+        BXS, BXE, BYS, BYE) at `self.times[t_idx]`.
+
+        The last time is not stored as a record, it's the end of the last record's
+        interval. MU there is reconstructed from the last record's value and tendency,
+        which is exactly how WRF gets it.
+        """
+
+        tend_name = "MU_BT" + bdy[1:]
+        n_records = len(self.times) - 1
+        if t_idx < n_records:
+            return self.nc_file.variables[f"MU_{bdy}"][t_idx, 0, :]
+
+        dt_last = (self.times[-1] - self.times[-2]).total_seconds()
+        return (
+            self.nc_file.variables[f"MU_{bdy}"][-1, 0, :]
+            + self.nc_file.variables[tend_name][-1, 0, :] * dt_last
+        )
 
     def close(self) -> None:
         self.nc_file.close()
