@@ -1,0 +1,151 @@
+# CAMS global atmospheric composition forecasts (IFS-COMPO, CY48R1 and later)
+# -> WRF-Chem GOCART "simple" aerosols (chem_opt = 300), all 19 tracers:
+#   so2, sulf, dms, msa                      [ppmv]
+#   BC1, BC2, OC1, OC2, P25, P10,
+#   DUST_1..5, SEAS_1..4                     [ug / kg dry air]
+#
+# Mass conventions are baked into the coefficients; the `units` entries only
+# handle the kg/kg -> ug/kg prefix change. Gases and sulphate go to ppmv via
+# coeff = M_air / M_species (M_air = 28.966 g/mol, WRF's `mwdry`) and
+# weight = 1e6.
+#
+# Needs CAMS forecasts from 2023-06-27 onwards (CY48R1), when the two SOA
+# tracers (aermr19, aermr20) were split off from organic matter. For older
+# forecasts or EAC4, drop SOAB/SOAA from OC2.
+#
+# CAMS nitrate and ammonium (aermr16, aermr17, aermr18) are not used: GOCART
+# has no tracer for them.
+#
+# CAMS mixing ratios are per kg of moist air, WRF's per kg of dry air. The
+# difference, 1 / (1 - q), is at most 2-3% in a humid boundary layer and is
+# NOT corrected here.
+[meta]
+name = "CAMS global forecasts (CY48R1+) to GOCART simple (chem_opt=300), all species"
+version = 2
+
+[aliases_source]
+CAMSS1 = "aermr01" # Sea salt 0.03-0.5 um (radius, at 80% RH)
+CAMSS2 = "aermr02" # Sea salt 0.5-5 um
+CAMSS3 = "aermr03" # Sea salt 5-20 um
+CAMSD1 = "aermr04" # Dust 0.03-0.55 um (radius, dry)
+CAMSD2 = "aermr05" # Dust 0.55-0.9 um
+CAMSD3 = "aermr06" # Dust 0.9-20 um
+OMPHIL = "aermr07" # Hydrophilic organic matter (primary only since CY48R1)
+OMPHOB = "aermr08" # Hydrophobic organic matter
+BCPHIL = "aermr09" # Hydrophilic black carbon
+BCPHOB = "aermr10" # Hydrophobic black carbon
+SU = "aermr11"     # Sulphate, as SO4 mass
+SOAB = "aermr19"   # Biogenic secondary organic aerosol
+SOAA = "aermr20"   # Anthropogenic secondary organic aerosol
+SO2 = "so2"
+DMS = "dms"
+MSA = "msa"
+
+[aliases_target]
+
+# --- Dust ---------------------------------------------------------------
+# Sub-bin mass weighted by the IFS-assumed dust size distribution (4
+# lognormal modes, Ryder et al. 2018; IFS Cy50r1 Part VIII, Table 5.1). Mass
+# above the GOCART range (r > 10 um) is assigned to DUST_5. Columns sum to 1
+# (dry mass on both sides).
+[species_map.DUST_1]
+coeffs = { CAMSD1 = 1.000000, CAMSD2 = 1.000000, CAMSD3 = 0.016163 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_2]
+coeffs = { CAMSD3 = 0.189474 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_3]
+coeffs = { CAMSD3 = 0.296194 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_4]
+coeffs = { CAMSD3 = 0.354943 }
+units = { global = "k", regional = "u" }
+
+[species_map.DUST_5]
+coeffs = { CAMSD3 = 0.143225 }
+units = { global = "k", regional = "u" }
+
+# --- Sea salt -----------------------------------------------------------
+# CAMS mixing ratios and bin limits are at 80% RH (IFS Cy50r1 Part VIII,
+# Sec. 2); the wet->dry mass factor 1/4.3 is pre-baked into these
+# coefficients, so columns sum to 1/4.3 = 0.232558 and the output is dry
+# GOCART sea salt mass. Sub-bin mass weighted by the IFS bimodal sea salt
+# distribution (Table 5.1), converted to dry radius.
+[species_map.SEAS_1]
+coeffs = { CAMSS1 = 0.232558, CAMSS2 = 0.007889 }
+units = { global = "k", regional = "u" }
+
+[species_map.SEAS_2]
+coeffs = { CAMSS2 = 0.070208 }
+units = { global = "k", regional = "u" }
+
+[species_map.SEAS_3]
+coeffs = { CAMSS2 = 0.154461, CAMSS3 = 0.129501 }
+units = { global = "k", regional = "u" }
+
+[species_map.SEAS_4]
+coeffs = { CAMSS3 = 0.103057 }
+units = { global = "k", regional = "u" }
+
+# --- Black carbon -------------------------------------------------------
+# GOCART: BC1 hydrophobic, BC2 hydrophilic. Carbon mass on both sides.
+[species_map.BC1]
+coeffs = { BCPHOB = 1.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.BC2]
+coeffs = { BCPHIL = 1.0 }
+units = { global = "k", regional = "u" }
+
+# --- Organic carbon -----------------------------------------------------
+# CAMS carries organic MATTER, GOCART organic CARBON: WRF multiplies OC by
+# oc_mfac = 1.8 for PM and optics. Dividing by 1.8 here (1/1.8 = 0.555556)
+# makes WRF's diagnosed organic matter equal the CAMS mass. OC1 hydrophobic,
+# OC2 hydrophilic. Both SOA tracers are hygroscopic in IFS, so they go to OC2.
+[species_map.OC1]
+coeffs = { OMPHOB = 0.555556 }
+units = { global = "k", regional = "u" }
+
+[species_map.OC2]
+coeffs = { OMPHIL = 0.555556, SOAB = 0.555556, SOAA = 0.555556 }
+units = { global = "k", regional = "u" }
+
+# --- Sulphur cycle (ppmv) -----------------------------------------------
+# sulf is carried as a gas-like ppmv tracer of SO4 (WRF: mwso4 = 96.0576 and
+# a 1.375 factor for the ammonium, applied in the PM/optics diagnostics).
+# CAMS sulphate is SO4 mass as well, so only the molar-mass ratio applies.
+[species_map.sulf]
+coeffs = { SU = 0.301548 } # 28.966 / 96.0576
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.so2]
+coeffs = { SO2 = 0.452143 } # 28.966 / 64.0638
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.dms]
+coeffs = { DMS = 0.466186 } # 28.966 / 62.134
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+[species_map.msa]
+coeffs = { MSA = 0.301396 } # 28.966 / 96.106
+units = { global = "k", regional = "k" }
+weight = 1e6
+
+# --- Other PM -----------------------------------------------------------
+# P25 ("other primary PM2.5") and P10 (the coarse remainder) have no CAMS
+# counterpart and are set to zero. The entries must stay: real.exe otherwise
+# leaves P25 = 1 ug/kg in the whole initial state. The source variable is
+# irrelevant, it is only there because a coefficient needs one.
+[species_map.P25]
+coeffs = { CAMSD1 = 0.0 }
+units = { global = "k", regional = "u" }
+
+[species_map.P10]
+coeffs = { CAMSD1 = 0.0 }
+units = { global = "k", regional = "u" }
