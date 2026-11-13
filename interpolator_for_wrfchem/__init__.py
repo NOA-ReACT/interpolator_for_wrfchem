@@ -430,6 +430,17 @@ def main(
     global_model_ds = global_model.get_dataset_interpolated(wrf.time)
     if skip_vertical:
         global_model_ds.attrs["skip_vertical"] = True
+    elif "pres_hf" in global_model_ds and "pres_hf" in wrf_ds:
+        # Nothing is extrapolated upwards, e.g. when the upper model levels were
+        # left out of the download to save space.
+        source_top = float(global_model_ds.pres_hf.min(dim="level_hf").max())
+        wrf_top = float(wrf_ds.pres_hf.min())
+        if wrf_top < source_top:
+            print(
+                f"Warning: the WRF model top ({wrf_top:.1f} hPa) is above the top of "
+                f"the global model data ({source_top:.1f} hPa). WRF layers above "
+                "it will get no mass."
+            )
 
     # Initial conditions
     if not no_ic:
