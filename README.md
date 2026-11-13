@@ -48,6 +48,11 @@ The `wrfinput` and `wrfbdy` files **WILL BE MODIFIED**! The `global model name` 
 
 You can add support for other global models by implementing a subclass of `GlobalModel`, check the `global_models/prototype.py` file for details.
 
+The CAMS data directory should contain one subdirectory per download (usually one per day, e.g. `2026-04-01/`), with the netCDF files as they come out of the ADS `netcdf_zip` archives:
+
+- The files are recognised by their content, not their name: any number of multi-level files plus one file that holds the surface pressure (`sp`). ADS rejects requests that are too large, so you can split a download in several requests (a few variables each) and extract all of them in the same subdirectory.
+- For model-level data, you can leave out the upper levels to make the requests smaller. The levels must be contiguous and reach the surface. For example, levels 46 to 137 of the forecasts start at 42 hPa, which is enough for a WRF domain with its top at 50 hPa. WRF layers above the highest downloaded level get no mass, and the interpolator prints a warning when that happens.
+
 There are some optional flags:
 
 - `--wrfbdy=`: Path to the `wrfbdy_d01` file, if not provided, the boundary is not updated.
@@ -64,6 +69,12 @@ If you need to update `wrfbdy` files for the future without touching `wrfinput` 
 In many cases, the available fields of the global model do not directly correspond to the ones used by the chemistry/dust scheme you want to use in WRF-CHEM. For example, you might have dust concentrations available in different size bins. The application supports "species mapping", through which the WRF-CHEM fields are created through a linear combination of global model fields, after interpolation.
 
 Detailed description of the species file format is available in [species_maps.md](./species_maps/species_maps.md).
+
+Ready-made maps in `species_maps/`:
+
+- `cams_eac4_gocart.toml`: CAMS dust to the five GOCART dust bins.
+- `cams_global_forecasts_gocart.toml`: CAMS global forecasts (IFS cycle 48r1 and later) to every tracer of the GOCART simple scheme (`chem_opt = 300`): dust, sea salt, black and organic carbon, sulphate, SO2, DMS and MSA. `P25` and `P10` are set to zero, since CAMS nitrate and ammonium have no GOCART counterpart. The header of the file describes the mass conventions used and the `[aliases_source]` section lists the CAMS variables to download.
+- `wrfout.toml`: WRF-to-WRF (no-op) map for dust.
 
 ## Use in other projects
 
