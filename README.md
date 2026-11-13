@@ -73,8 +73,24 @@ Detailed description of the species file format is available in [species_maps.md
 Ready-made maps in `species_maps/`:
 
 - `cams_eac4_gocart.toml`: CAMS dust to the five GOCART dust bins.
-- `cams_global_forecasts_gocart.toml`: CAMS global forecasts (IFS cycle 48r1 and later) to every tracer of the GOCART simple scheme (`chem_opt = 300`): dust, sea salt, black and organic carbon, sulphate, SO2, DMS and MSA. `P25` and `P10` are set to zero, since CAMS nitrate and ammonium have no GOCART counterpart. The header of the file describes the mass conventions used and the `[aliases_source]` section lists the CAMS variables to download.
+- `cams_global_forecasts_gocart.toml`: the full map from CAMS global forecasts (IFS cycle 48r1 and later) to every tracer of the GOCART simple scheme (`chem_opt = 300`): dust, sea salt, black and organic carbon, sulphate, SO2, DMS and MSA. `P25` and `P10` are set to zero, since CAMS nitrate and ammonium have no GOCART counterpart.
+- `cams_global_forecasts_gocart_no_dms_msa.toml`: the same map with `dms` and `msa` set to zero, so those two fields do not have to be downloaded. They are on the slow (tape) tier of ADS, and WRF only transports and deposits them unless the GOCART sulphur chemistry is on.
 - `wrfout.toml`: WRF-to-WRF (no-op) map for dust.
+
+The CAMS variables each of the forecast maps needs, on model or pressure levels, plus `surface_pressure`:
+
+| ADS variable | NetCDF name | Full map | No DMS/MSA |
+| --- | --- | --- | --- |
+| `sea_salt_aerosol_0.03-0.5um_mixing_ratio`, `..._0.5-5um_...`, `..._5-20um_...` | `aermr01`-`aermr03` | yes | yes |
+| `dust_aerosol_0.03-0.55um_mixing_ratio`, `..._0.55-0.9um_...`, `..._0.9-20um_...` | `aermr04`-`aermr06` | yes | yes |
+| `hydrophilic_organic_matter_aerosol_mixing_ratio`, `hydrophobic_...` | `aermr07`, `aermr08` | yes | yes |
+| `hydrophilic_black_carbon_aerosol_mixing_ratio`, `hydrophobic_...` | `aermr09`, `aermr10` | yes | yes |
+| `sulphate_aerosol_mixing_ratio` | `aermr11` | yes | yes |
+| `biogenic_secondary_organic_aerosol_mass_mixing_ratio`, `anthropogenic_...` | `aermr19`, `aermr20` | yes | yes |
+| `sulphur_dioxide` | `so2` | yes | yes |
+| `dimethyl_sulfide`, `methane_sulfonic_acid` | `dms`, `msa` | yes | no |
+
+The header of each file describes the mass conventions used. A variable that a map needs but is missing from the data is an error, the interpolator does not skip it.
 
 ## Use in other projects
 
