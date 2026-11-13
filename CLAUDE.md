@@ -58,5 +58,5 @@ See `species_maps/species_maps.md` for full specification.
 - Fields are mixing ratios
 - Global model fields are on regular lat-lon grid
 - WRF files use standard field names and dimensions: (Time, bottom_top, south_north, west_east)
-- Global model data organized as `YYYY-MM-DD/data_sfc.nc`, `data_mlev.nc` subdirectories
+- Global model data organized in one subdirectory per download (`YYYY-MM-DD/`). CAMS files are classified by content (level dimension, `sp`), so the multi-level variables can be spread over several files and the upper model levels can be missing (contiguous down to the surface)
 - The vertical remap is mass-conservative between interface pressures. WRF's are rebuilt as `C3F·(MU+MUB) + C4F + P_TOP` (hybrid coordinate). For the boundaries, MU is taken from the wrfbdy's own `MU_B*` at each boundary time (`WRFBoundary.boundary_mu`), so one wrfbdy can span many days; the wrfinput only provides the grid and base state.
