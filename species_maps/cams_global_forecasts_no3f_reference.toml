@@ -1,0 +1,23 @@
+# CAMS global atmospheric composition forecasts -> reference field for the
+# relaxation of WRF-ReACT's fine nitrate tracer no3f (chem_opt = 300,
+# chem_nudge_opt = 1), for `interpolator-for-wrfchem-fields --wrf-reference`.
+#
+# The files hold NO3F_NDG_OLD (at the file time) and NO3F_NDG_NEW (one
+# auxinput19_interval later), which WRF interpolates in time and relaxes no3f
+# towards with time scale chem_nudge_tau_no3f.
+#
+# no3f is CAMS fine nitrate (aermr16) as nitrate-ion mass, ug/kg, the same as in
+# the IC/BC map (cams_global_forecasts_gocart.toml). CAMS mixing ratios are per
+# kg of moist air, WRF's per kg of dry air; the difference is not corrected.
+[meta]
+name = "CAMS global forecasts fine nitrate to the WRF-ReACT no3f reference"
+version = 2
+
+[aliases_source]
+NIF = "aermr16"
+
+[aliases_target]
+
+[species_map.NO3F]
+coeffs = { NIF = 1.0 }
+units = { global = "k", regional = "u" }

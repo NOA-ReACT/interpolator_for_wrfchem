@@ -73,8 +73,10 @@ Detailed description of the species file format is available in [species_maps.md
 Ready-made maps in `species_maps/`:
 
 - `cams_eac4_gocart.toml`: CAMS dust to the five GOCART dust bins.
-- `cams_global_forecasts_gocart.toml`: the full map from CAMS global forecasts (IFS cycle 48r1 and later) to every tracer of the GOCART simple scheme (`chem_opt = 300`): dust, sea salt, black and organic carbon, sulphate, SO2, DMS and MSA. `P25` and `P10` are set to zero, since CAMS nitrate and ammonium have no GOCART counterpart.
+- `cams_global_forecasts_gocart.toml`: the full map from CAMS global forecasts (IFS cycle 48r1 and later) to every tracer of the GOCART simple scheme (`chem_opt = 300`): dust, sea salt, black and organic carbon, sulphate, SO2, DMS and MSA, plus `NO3F`, the fine nitrate tracer of WRF-ReACT (CAMS fine nitrate as nitrate-ion mass; WRF counts it as NH4NO3). `P25` and `P10` are set to zero. A WRF build without `no3f` ignores `NO3F`.
 - `cams_global_forecasts_gocart_no_dms_msa.toml`: the same map with `dms` and `msa` set to zero, so those two fields do not have to be downloaded. They are on the slow (tape) tier of ADS, and WRF only transports and deposits them unless the GOCART sulphur chemistry is on.
+- `cams_global_forecasts_no3f_reference.toml`: only `NO3F`, for the relaxation reference files (`interpolator-for-wrfchem-fields --wrf-reference`).
+- `cams_global_forecasts_gocart_oxidants.toml`: the GOCART background oxidants, for `interpolator-for-wrfchem-fields --daily-mean`.
 - `wrfout.toml`: WRF-to-WRF (no-op) map for dust.
 
 The CAMS variables each of the forecast maps needs, on model or pressure levels, plus `surface_pressure`:
@@ -86,6 +88,7 @@ The CAMS variables each of the forecast maps needs, on model or pressure levels,
 | `hydrophilic_organic_matter_aerosol_mixing_ratio`, `hydrophobic_...` | `aermr07`, `aermr08` | yes | yes |
 | `hydrophilic_black_carbon_aerosol_mixing_ratio`, `hydrophobic_...` | `aermr09`, `aermr10` | yes | yes |
 | `sulphate_aerosol_mixing_ratio` | `aermr11` | yes | yes |
+| `nitrate_fine_mode_aerosol_mass_mixing_ratio` | `aermr16` | yes | yes |
 | `biogenic_secondary_organic_aerosol_mass_mixing_ratio`, `anthropogenic_...` | `aermr19`, `aermr20` | yes | yes |
 | `sulphur_dioxide` | `so2` | yes | yes |
 | `dimethyl_sulfide`, `methane_sulfonic_acid` | `dms`, `msa` | yes | no |
@@ -102,8 +105,13 @@ uv run interpolator-for-wrfchem-fields cams_global_forecasts /path/to/cams speci
 
 - `--daily-mean` (default): one record per UTC day, the mean of the global-model times in [00, 24) UTC, labelled with that day at 00:00. GOCART expects daily-mean oxidants and puts the diurnal cycle on them itself. Days with fewer source times than the others are skipped (or an error inside `--start`/`--end`, unless `--allow-partial`), so download whole days, from 00 UTC.
 - `--instantaneous`: one record per global-model time.
+- `--wrf-reference`: WRF auxinput files for WRF-ReACT's chem nudging (`chem_nudge_opt = 1`), e.g. the `no3f` relaxation. OUTPUT is a directory with one file per `--interval` (default 360 min) from `--start` to `--end` (`YYYY-MM-DD_HH`), named by `--file-template` (default `auxinput19_d01_{date}`). Each holds every field of the map twice, `<NAME>_NDG_OLD` at the file time and `<NAME>_NDG_NEW` one interval later, instantaneous and interpolated in time between global-model times, so the data has to reach `--end` + `--interval`. WRF reads them every `auxinput19_interval_m` counted from the start of each run, so runs must start at file times.
 
-The output has WRF's dimensions (`Time`, `bottom_top`, `south_north`, `west_east`), a WRF-style `Times` variable and the grid attributes of the wrfinput. The vertical remap uses the wrfinput's pressure for every time, which is fine for slowly varying fields like oxidants but not for transported tracers. Below the global model's surface the default is `--below-surface-fill extend`, since these are not tracer masses to conserve.
+```bash
+uv run interpolator-for-wrfchem-fields cams_global_forecasts /path/to/cams species_maps/cams_global_forecasts_no3f_reference.toml wrfinput_d01 no3f_ref/ --wrf-reference --start 2026-04-01_12 --end 2026-04-04_12
+```
+
+Every output has WRF's dimensions (`Time`, `bottom_top`, `south_north`, `west_east`), a WRF-style `Times` variable and the grid attributes of the wrfinput. The vertical remap uses the wrfinput's pressure for every time, which is fine for slowly varying fields like oxidants but not for transported tracers. Below the global model's surface the default is `--below-surface-fill extend` for `--daily-mean`/`--instantaneous` (no zero oxidants in deep valley cells) and `clamp` for `--wrf-reference`, the default of `interpolator-for-wrfchem`, so a relaxation reference is identical to the tracer's initial conditions at the same time.
 
 The CAMS fields for the oxidant map are hydroxyl radical, hydrogen peroxide and nitrate radical on model levels (netCDF `oh`, `h2o2`, `no3`).
 

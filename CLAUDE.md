@@ -40,7 +40,7 @@ No formal test suite exists. Testing is done via exploration scripts in `explora
 
 ### Other commands
 
-- `fields.py` (`interpolator-for-wrfchem-fields`) - Interpolates a species map at many times (daily means by default) and writes all records to one netCDF file with WRF dimensions, for fields a cycling system has to overwrite (e.g. GOCART `BACKG_*`). Uses the wrfinput's pressure for every time.
+- `fields.py` (`interpolator-for-wrfchem-fields`) - Interpolates a species map at many times and writes WRF-dimensioned netCDF: daily means or instantaneous records in one file, for fields a cycling system has to overwrite (e.g. GOCART `BACKG_*`, below-surface fill `extend`); or `--wrf-reference`, one auxinput19 file per interval with `<NAME>_NDG_OLD/NEW` for WRF-ReACT's chem nudging (no3f relaxation, fill `clamp` to match the IC/BC). Uses the wrfinput's pressure for every time. WRF input files need a TITLE containing ` V4.` (or `EMISSIONS` etc.).
 - `emissions.py` (`interpolator-for-wrfchem-emissions`) - Mass-conservative regridding of lat-lon flux inventories (sub-cell sampling on WRF's R=6370 km projection, `ConservativeRegridder`), sector vertical profiles, emission maps in TOML (version 1, own format: `sources`, `targets` with unit-converting coefficients, `vertical`). Writes `wrfchemi_d01_<date>` for `io_style_emissions = 2`. The file TITLE must contain `EMISSIONS` or WRF refuses it.
 
 ### Key Library Functions

@@ -3,6 +3,7 @@
 #   so2, sulf, dms, msa                      [ppmv]
 #   BC1, BC2, OC1, OC2, P25, P10,
 #   DUST_1..5, SEAS_1..4                     [ug / kg dry air]
+# plus WRF-ReACT's fine nitrate tracer no3f    [ug / kg dry air]
 #
 # Mass conventions are baked into the coefficients; the `units` entries only
 # handle the kg/kg -> ug/kg prefix change. Gases and sulphate go to ppmv via
@@ -13,8 +14,13 @@
 # tracers (aermr19, aermr20) were split off from organic matter. For older
 # forecasts or EAC4, drop SOAB/SOAA from OC2.
 #
-# CAMS nitrate and ammonium (aermr16, aermr17, aermr18) are not used: GOCART
-# has no tracer for them.
+# NO3F is CAMS fine nitrate (aermr16) as nitrate-ion mass; WRF-ReACT counts it as
+# NH4NO3 (x 80/62) for PM and droplet activation, so CAMS ammonium (aermr18) is
+# not read. Coarse nitrate (aermr17) is not used: it is small optically. A WRF
+# build without no3f just ignores the NO3F variable the interpolator adds. Inside
+# the domain, no3f is relaxed towards CAMS with the files of
+# `interpolator-for-wrfchem-fields --wrf-reference` and
+# cams_global_forecasts_no3f_reference.toml (chem_nudge_opt = 1).
 #
 # CAMS mixing ratios are per kg of moist air, WRF's per kg of dry air. The
 # difference, 1 / (1 - q), is at most 2-3% in a humid boundary layer and is
@@ -37,6 +43,7 @@ BCPHOB = "aermr10" # Hydrophobic black carbon
 SU = "aermr11"     # Sulphate, as SO4 mass
 SOAB = "aermr19"   # Biogenic secondary organic aerosol
 SOAA = "aermr20"   # Anthropogenic secondary organic aerosol
+NIF = "aermr16"    # Fine-mode nitrate, as NO3 mass
 SO2 = "so2"
 DMS = "dms"
 MSA = "msa"
@@ -136,6 +143,11 @@ weight = 1e6
 coeffs = { MSA = 0.301396 } # 28.966 / 96.106
 units = { global = "k", regional = "k" }
 weight = 1e6
+
+# --- Fine nitrate (WRF-ReACT no3f) -------------------------------------
+[species_map.NO3F]
+coeffs = { NIF = 1.0 }
+units = { global = "k", regional = "u" }
 
 # --- Other PM -----------------------------------------------------------
 # P25 ("other primary PM2.5") and P10 (the coarse remainder) have no CAMS
