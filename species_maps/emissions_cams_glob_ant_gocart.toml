@@ -1,0 +1,138 @@
+# CAMS-GLOB-ANT (v6.2) -> WRF-Chem GOCART simple anthropogenic emissions
+# (chem_opt = 300, emiss_opt = 6), for `interpolator-for-wrfchem-emissions`.
+#
+# Fields WRF reads with emiss_opt = 6 (chem/emissions_driver.F):
+#   E_SO2, E_SULF, E_DMS   mol km-2 hr-1   -> so2, sulf, dms
+#   E_BC, E_OC             ug m-2 s-1      -> BC1, OC1 (all hydrophobic; GOCART
+#                                             ages them into BC2/OC2)
+#   E_PM_25, E_PM_10       ug m-2 s-1      -> P25, P10
+# E_DMS needs WRF-ReACT with E_DMS in the emiss_opt = 6 package; use it with
+# dmsemis_opt = 0.
+#
+# With CAMS IC/BC (SOA mapped into OC2), also set gocart_bc_soa_fac = 0
+# (WRF-ReACT): by default GOCART adds 8 times the aged BC to OC2 as a stand-in
+# for SOA, which counts SOA twice and grows with these BC emissions.
+#
+# Choices, to stay consistent with the CAMS forecasts that give the IC/BC
+# (IFS Cy49r1 documentation, Part VIII, Table 3.1):
+# - Anthropogenic: CAMS-GLOB-ANT, all sectors including shipping (`shp`).
+#   CAMS-GLOB-SHIP is NOT added on top, that would count ships twice.
+# - E_SULF = 0: CAMS emits anthropogenic sulphur as SO2 only.
+# - E_PM_25 = E_PM_10 = 0: CAMS-GLOB-ANT has no PM, and CAMS has no tracer for
+#   other primary PM.
+# - Volcanic SO2 (CAMS: Carn et al. 2017 climatology) and fires (GFAS) are not
+#   part of this map yet. CAMS-GLOB-ANT does not include volcanoes.
+# - E_DMS: CAMS-GLOB-OCE v3.1 (what CAMS uses), daily, kg of DMS m-2 s-1. v3.1
+#   only covers 2000-2019, so the 2019 file is used for every year (`year`).
+#   Its time axis says "months since 2019-01-01" but holds 365 daily records, so
+#   it is read by day of year. (v4.1, up to 2023, is a different product with
+#   ~43% less global DMS.)
+#
+# Coefficients convert kg m-2 s-1 to the WRF unit:
+#   to mol km-2 hr-1: 1e6 m2/km2 * 3600 s/hr / M [kg/mol]
+#   to ug m-2 s-1:    1e9
+# OC is organic carbon, WRF multiplies it by 1.8 (oc_mfac) for organic matter.
+[meta]
+name = "CAMS-GLOB-ANT v6.2 to GOCART simple (emiss_opt = 6)"
+version = 1
+
+# Layout assumed under the input directory: cams_glob_ant/ (CAMS-GLOB-ANT) and
+# cams_glob_oce/ (CAMS-GLOB-OCE), as downloaded from the ADS.
+# `file` is relative to the input directory, {year} is replaced by the year of
+# the date. `sectors = "all"` takes every (time, lat, lon) variable except the
+# `sum_variable`, which is only used to check the sector sum.
+[sources.so2]
+file = "cams_glob_ant/CAMS-GLOB-ANT_v6.2_sulphur-dioxide_{year}.nc"
+sum_variable = "sum"
+
+[sources.bc]
+file = "cams_glob_ant/CAMS-GLOB-ANT_v6.2_black-carbon_{year}.nc"
+sum_variable = "sum"
+
+[sources.oc]
+file = "cams_glob_ant/CAMS-GLOB-ANT_v6.2_organic-carbon_{year}.nc"
+sum_variable = "sum"
+
+[sources.dms]
+file = "cams_glob_oce/CAMS-GLOB-OCE_v3.1_dimethyl-sulphide_{year}.nc"
+sectors = ["emi_oceans"]
+year = 2019
+time_axis = "day_of_year"
+
+[targets.E_SO2]
+units = "mol km^-2 hr^-1"
+description = "SO2 emissions, CAMS-GLOB-ANT v6.2"
+coeffs = { so2 = 5.619398e10 } # 3.6e9 / 0.0640638
+
+[targets.E_SULF]
+units = "mol km^-2 hr^-1"
+description = "Primary sulphate emissions (none, as in CAMS)"
+
+[targets.E_DMS]
+units = "mol km^-2 hr^-1"
+description = "Ocean DMS emissions, CAMS-GLOB-OCE v3.1 (2019)"
+coeffs = { dms = 5.793929e10 } # 3.6e9 / 0.062134 (kg DMS m-2 s-1)
+
+[targets.E_BC]
+units = "ug m^-2 s^-1"
+description = "Black carbon emissions, CAMS-GLOB-ANT v6.2"
+coeffs = { bc = 1e9 }
+
+[targets.E_OC]
+units = "ug m^-2 s^-1"
+description = "Organic carbon emissions, CAMS-GLOB-ANT v6.2"
+coeffs = { oc = 1e9 }
+
+[targets.E_PM_25]
+units = "ug m^-2 s^-1"
+description = "Other primary PM2.5 (none)"
+
+[targets.E_PM_10]
+units = "ug m^-2 s^-1"
+description = "Other primary PM10 (none)"
+
+# Vertical profiles: the EMEP MSC-W model defaults per SNAP sector
+# (EmisHeights.txt of rv4.33, https://emep-ctm.readthedocs.io/en/ug4_33/Input.html),
+# with layer tops at 20, 92, 184, 324, 522, 781 and 1106 m above ground. The
+# CAMS-GLOB-ANT sectors are mapped onto the closest SNAP sector. Each profile layer
+# is spread evenly in height over the WRF layers it overlaps.
+[vertical]
+default = "surface"
+
+[vertical.profiles.surface]
+edges = [0, 20]
+fractions = [1.0]
+
+[vertical.profiles.snap1_energy]
+edges = [0, 20, 92, 184, 324, 522, 781, 1106]
+fractions = [0.0, 0.0, 0.0025, 0.1475, 0.40, 0.30, 0.15]
+
+[vertical.profiles.snap3_industrial_combustion]
+edges = [0, 20, 92, 184, 324, 522, 781, 1106]
+fractions = [0.06, 0.16, 0.75, 0.03, 0.0, 0.0, 0.0]
+
+[vertical.profiles.snap5_fossil_fuel_extraction]
+edges = [0, 20, 92, 184, 324, 522, 781, 1106]
+fractions = [0.02, 0.08, 0.60, 0.30, 0.0, 0.0, 0.0]
+
+[vertical.profiles.snap9_waste]
+edges = [0, 20, 92, 184, 324, 522, 781, 1106]
+fractions = [0.0, 0.0, 0.41, 0.57, 0.02, 0.0, 0.0]
+
+[vertical.profiles.snap10_agriculture]
+edges = [0, 20, 92]
+fractions = [0.85, 0.15]
+
+[vertical.sectors]
+ene = "snap1_energy"                 # power generation
+ref = "snap1_energy"                 # refineries (SNAP 1 includes refining)
+ind = "snap3_industrial_combustion"  # industry
+fef = "snap5_fossil_fuel_extraction" # fugitive emissions
+swd = "snap9_waste"                  # solid waste and waste water
+awb = "snap10_agriculture"           # agricultural waste burning
+res = "surface"                      # residential (SNAP 2)
+com = "surface"                      # commercial (SNAP 2)
+tro = "surface"                      # road transport (SNAP 7)
+tnr = "surface"                      # off-road transport (SNAP 8)
+shp = "surface"                      # ships (SNAP 8)
+emi_oceans = "surface"               # ocean DMS

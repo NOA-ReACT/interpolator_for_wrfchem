@@ -92,6 +92,39 @@ The CAMS variables each of the forecast maps needs, on model or pressure levels,
 
 The header of each file describes the mass conventions used. A variable that a map needs but is missing from the data is an error, the interpolator does not skip it.
 
+## Time series of fields: `interpolator-for-wrfchem-fields`
+
+Some fields are read by WRF once, from `wrfinput`, and then kept for the whole run and through restarts. An example is the background oxidants of the GOCART sulphur chemistry (`BACKG_OH`, `BACKG_H2O2`, `BACKG_NO3`). A cycling system has to overwrite them at every cycle, so this command interpolates a species map at many times and writes all of them to one netCDF file, which the cycling system picks records from:
+
+```bash
+uv run interpolator-for-wrfchem-fields cams_global_forecasts /path/to/cams species_maps/cams_global_forecasts_gocart_oxidants.toml wrfinput_d01 oxidants.nc --start 2026-04-01 --end 2026-04-30
+```
+
+- `--daily-mean` (default): one record per UTC day, the mean of the global-model times in [00, 24) UTC, labelled with that day at 00:00. GOCART expects daily-mean oxidants and puts the diurnal cycle on them itself. Days with fewer source times than the others are skipped (or an error inside `--start`/`--end`, unless `--allow-partial`), so download whole days, from 00 UTC.
+- `--instantaneous`: one record per global-model time.
+
+The output has WRF's dimensions (`Time`, `bottom_top`, `south_north`, `west_east`), a WRF-style `Times` variable and the grid attributes of the wrfinput. The vertical remap uses the wrfinput's pressure for every time, which is fine for slowly varying fields like oxidants but not for transported tracers. Below the global model's surface the default is `--below-surface-fill extend`, since these are not tracer masses to conserve.
+
+The CAMS fields for the oxidant map are hydroxyl radical, hydrogen peroxide and nitrate radical on model levels (netCDF `oh`, `h2o2`, `no3`).
+
+## Emissions: `interpolator-for-wrfchem-emissions`
+
+Regrids gridded emission inventories (surface fluxes in kg m-2 s-1 on a regular lat-lon grid, one variable per sector, monthly or daily) to the WRF grid and writes `wrfchemi_d01_<date>` files for `io_style_emissions = 2`:
+
+```bash
+uv run interpolator-for-wrfchem-emissions /path/to/inventories species_maps/emissions_cams_glob_ant_gocart.toml wrfinput_d01 out_dir --start 2026-04-01_00 --end 2026-04-30_23
+```
+
+- The regridding is mass-conservative: every inventory cell is split into sub-cells (`--subcells`, default 5 per side) that are assigned to the WRF cell they fall in, on WRF's spherical projection.
+- Each sector is spread over the lowest WRF layers with a vertical profile from the emission map. The bundled map uses the EMEP MSC-W default profiles per SNAP sector. The number of emission levels (`kemit`) is chosen to hold the highest profile and printed at the end, or forced with `--kemit` (anything above goes into the top level).
+- There is no diurnal or weekly cycle yet: emissions are constant within each month (or day) of the inventory.
+- One file per `--interval` (default 60 min) by default. WRF opens the file named after the time it needs one, so with more `--frames-per-file` the files have to line up with the start of every run.
+- The command prints the namelist settings to use (`emiss_opt`, `io_style_emissions`, `kemit`, `auxinput5_*`).
+
+The input directory holds the inventories in subdirectories (`cams_glob_ant/`, `cams_glob_oce/` for the bundled map); a source's `file` is relative to it. A source can force a `year` (e.g. a climatology) and read a broken time axis by day of year (`time_axis = "day_of_year"`).
+
+The emission map (`species_maps/emissions_cams_glob_ant_gocart.toml`) lists the source files, the coefficients from sources to each WRF field (which also convert the units) and the vertical profiles. Its header explains the choices made to stay consistent with the CAMS forecasts.
+
 ## Use in other projects
 
 To automate use of the interpolator by using it as a library in your project, it is recommended to use the `do_initial_conditions()` and `do_boundary_conditions()` functions from the `interpolator_for_wrfchem` module. Provided with the correct arguments, these functions will mirror the command-line behavior of the interpolator. Exact details of how to set up all the magic objects required by these functions are available inside the main CLI entrypoint (file `interpolator_for_wrfchem/__init__.py`, `main()` function).

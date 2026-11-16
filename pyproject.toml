@@ -21,6 +21,8 @@ dependencies = [
 
 [project.scripts]
 interpolator-for-wrfchem = "interpolator_for_wrfchem:main"
+interpolator-for-wrfchem-fields = "interpolator_for_wrfchem.fields:main"
+interpolator-for-wrfchem-emissions = "interpolator_for_wrfchem.emissions:main"
 
 [dependency-groups]
 dev = [

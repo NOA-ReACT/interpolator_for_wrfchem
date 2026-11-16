@@ -1,0 +1,39 @@
+# CAMS global atmospheric composition forecasts -> background oxidants of the
+# WRF-Chem GOCART sulphur chemistry (chem_opt = 300, gaschem_onoff = 1):
+#   BACKG_OH, BACKG_H2O2, BACKG_NO3          [volume mixing ratio, mol/mol]
+#
+# Use with `interpolator-for-wrfchem-fields --daily-mean`: GOCART expects daily
+# means. It applies its own diurnal cycle to OH (scaled by cos(SZA)) and moves NO3
+# into the night (divided by the night fraction), see chem/module_gocart_chem.F.
+#
+# CAMS mixing ratios are mass mixing ratios (kg/kg), so coeff = M_air / M_species
+# with M_air = 28.966 g/mol (WRF's mwdry). The fields are hydroxyl radical,
+# hydrogen peroxide and nitrate radical (the radical, not the nitrate aerosol) on
+# model levels; their netCDF/GRIB short names are oh, h2o2 and no3 (ECMWF
+# parameters 217030, 217003, 217032).
+#
+# Known caveat: CAMS OH has sizeable biases (see e.g. GMD 15, 4657, 2022), but the
+# classic GOCART monthly climatology is not better constrained and is not
+# consistent with the CAMS boundaries.
+[meta]
+name = "CAMS global forecasts to GOCART background oxidants"
+version = 2
+
+[aliases_source]
+OH = "oh"
+H2O2 = "h2o2"
+NO3 = "no3"
+
+[aliases_target]
+
+[species_map.BACKG_OH]
+coeffs = { OH = 1.703181 } # 28.966 / 17.007
+units = { global = "", regional = "" }
+
+[species_map.BACKG_H2O2]
+coeffs = { H2O2 = 0.851573 } # 28.966 / 34.0147
+units = { global = "", regional = "" }
+
+[species_map.BACKG_NO3]
+coeffs = { NO3 = 0.467164 } # 28.966 / 62.0049
+units = { global = "", regional = "" }

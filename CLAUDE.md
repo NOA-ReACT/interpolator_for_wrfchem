@@ -17,6 +17,12 @@ uv run interpolator-for-wrfchem <global_model> <input_files> <mapping> <wrfinput
 
 # Example
 uv run interpolator-for-wrfchem cams_eac4 /path/to/cams species_map.toml wrfinput_d01 --wrfbdy=wrfbdy_d01
+
+# Time series of fields (e.g. GOCART background oxidants, daily means) to a separate file
+uv run interpolator-for-wrfchem-fields cams_global_forecasts /path/to/cams species_maps/cams_global_forecasts_gocart_oxidants.toml wrfinput_d01 oxidants.nc
+
+# Emission inventories to wrfchemi files
+uv run interpolator-for-wrfchem-emissions /path/to/inventories species_maps/emissions_cams_glob_ant_gocart.toml wrfinput_d01 out_dir --start 2026-04-01_00 --end 2026-04-02_00
 ```
 
 No formal test suite exists. Testing is done via exploration scripts in `exploration/`.
@@ -31,6 +37,11 @@ No formal test suite exists. Testing is done via exploration scripts in `explora
 4. **Global Model Abstraction** (`global_models/`) - `GlobalModel` ABC with implementations for CAMS. Returns data as xarray Dataset via `get_dataset(time)`
 5. **Interpolation** (`interpolation.py`) - Two-step process: horizontal interpolation with RectBivariateSpline, then vertical linear interpolation to WRF pressure levels
 6. **Output** - Updates wrfinput/wrfbdy NetCDF files directly
+
+### Other commands
+
+- `fields.py` (`interpolator-for-wrfchem-fields`) - Interpolates a species map at many times (daily means by default) and writes all records to one netCDF file with WRF dimensions, for fields a cycling system has to overwrite (e.g. GOCART `BACKG_*`). Uses the wrfinput's pressure for every time.
+- `emissions.py` (`interpolator-for-wrfchem-emissions`) - Mass-conservative regridding of lat-lon flux inventories (sub-cell sampling on WRF's R=6370 km projection, `ConservativeRegridder`), sector vertical profiles, emission maps in TOML (version 1, own format: `sources`, `targets` with unit-converting coefficients, `vertical`). Writes `wrfchemi_d01_<date>` for `io_style_emissions = 2`. The file TITLE must contain `EMISSIONS` or WRF refuses it.
 
 ### Key Library Functions
 
